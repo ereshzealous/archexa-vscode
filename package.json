@@ -1,0 +1,437 @@
+{
+  "name": "archexa",
+  "displayName": "Archexa",
+  "description": "AI-powered codebase intelligence — diagnose errors, review code, query architecture, trace impact",
+  "version": "0.1.0",
+  "publisher": "ereshzealous",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "ai",
+    "architecture",
+    "code review",
+    "diagnostics",
+    "llm",
+    "codebase"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ereshzealous/archexa-vscode"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "archexa.diagnoseSelection",
+        "title": "Diagnose Selected Error",
+        "category": "Archexa",
+        "icon": "$(bug)"
+      },
+      {
+        "command": "archexa.diagnoseClipboard",
+        "title": "Diagnose from Clipboard",
+        "category": "Archexa",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "archexa.diagnoseFile",
+        "title": "Diagnose Log File...",
+        "category": "Archexa",
+        "icon": "$(file-text)"
+      },
+      {
+        "command": "archexa.reviewFile",
+        "title": "Review This File",
+        "category": "Archexa",
+        "icon": "$(search)"
+      },
+      {
+        "command": "archexa.reviewChanges",
+        "title": "Review My Changes",
+        "category": "Archexa",
+        "icon": "$(git-pull-request)"
+      },
+      {
+        "command": "archexa.reviewBranch",
+        "title": "Review Branch vs Main...",
+        "category": "Archexa",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "archexa.query",
+        "title": "Query Codebase...",
+        "category": "Archexa",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "archexa.impactFile",
+        "title": "Impact: What Breaks?",
+        "category": "Archexa",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "archexa.gist",
+        "title": "Quick Gist of Codebase",
+        "category": "Archexa",
+        "icon": "$(book)"
+      },
+      {
+        "command": "archexa.analyze",
+        "title": "Full Architecture Analysis",
+        "category": "Archexa",
+        "icon": "$(symbol-structure)"
+      },
+      {
+        "command": "archexa.openSettings",
+        "title": "Open Settings",
+        "category": "Archexa",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "archexa.checkBinary",
+        "title": "Check / Update Binary",
+        "category": "Archexa",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "archexa.clearHistory",
+        "title": "Clear Result History",
+        "category": "Archexa"
+      },
+      {
+        "command": "archexa.clearFindings",
+        "title": "Clear All Findings",
+        "category": "Archexa"
+      },
+      {
+        "command": "archexa.showSetup",
+        "title": "Run Setup Wizard",
+        "category": "Archexa",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "archexa.welcome",
+        "title": "Welcome",
+        "category": "Archexa"
+      },
+      {
+        "command": "archexa.reopenResult",
+        "title": "Reopen Result",
+        "category": "Archexa"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "archexa.editorSubmenu",
+        "label": "Archexa"
+      },
+      {
+        "id": "archexa.explorerSubmenu",
+        "label": "Archexa"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "archexa.editorSubmenu",
+          "group": "9_archexa@1",
+          "when": "editorTextFocus"
+        }
+      ],
+      "explorer/context": [
+        {
+          "submenu": "archexa.explorerSubmenu",
+          "group": "9_archexa@1"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "archexa.reviewChanges",
+          "group": "navigation",
+          "when": "scmProvider == git"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "archexa.reviewFile",
+          "group": "navigation",
+          "when": "resourceLangId =~ /python|typescript|javascript|go|java|rust|ruby|csharp|kotlin/"
+        }
+      ],
+      "archexa.editorSubmenu": [
+        {
+          "command": "archexa.diagnoseSelection",
+          "group": "1_diagnose@1",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "archexa.diagnoseClipboard",
+          "group": "1_diagnose@2"
+        },
+        {
+          "command": "archexa.reviewFile",
+          "group": "2_review@1"
+        },
+        {
+          "command": "archexa.reviewChanges",
+          "group": "2_review@2"
+        },
+        {
+          "command": "archexa.query",
+          "group": "3_query@1"
+        },
+        {
+          "command": "archexa.gist",
+          "group": "3_query@2"
+        },
+        {
+          "command": "archexa.impactFile",
+          "group": "4_impact@1"
+        }
+      ],
+      "archexa.explorerSubmenu": [
+        {
+          "command": "archexa.diagnoseFile",
+          "group": "1_diagnose@1"
+        },
+        {
+          "command": "archexa.reviewFile",
+          "group": "2_review@1"
+        },
+        {
+          "command": "archexa.reviewChanges",
+          "group": "2_review@2"
+        },
+        {
+          "command": "archexa.reviewBranch",
+          "group": "2_review@3"
+        },
+        {
+          "command": "archexa.gist",
+          "group": "3_gist@1"
+        },
+        {
+          "command": "archexa.impactFile",
+          "group": "4_impact@1"
+        },
+        {
+          "command": "archexa.analyze",
+          "group": "5_analyze@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "archexa.openSettings",
+          "when": "view == archexa.sidebar",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "archexa.diagnoseSelection",
+        "key": "ctrl+shift+d",
+        "mac": "cmd+shift+d",
+        "when": "editorHasSelection"
+      },
+      {
+        "command": "archexa.reviewFile",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "archexa.query",
+        "key": "ctrl+shift+q",
+        "mac": "cmd+alt+q"
+      },
+      {
+        "command": "archexa.impactFile",
+        "key": "ctrl+shift+i",
+        "mac": "cmd+shift+i",
+        "when": "editorTextFocus"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "archexa-sidebar",
+          "title": "Archexa",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "archexa-sidebar": [
+        {
+          "id": "archexa.sidebar",
+          "name": "Archexa",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Archexa",
+      "properties": {
+        "archexa.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI-compatible API key. Leave empty to use OPENAI_API_KEY env var.",
+          "scope": "machine-overridable"
+        },
+        "archexa.model": {
+          "type": "string",
+          "default": "gpt-4o",
+          "description": "Model string (any OpenAI-compatible model).",
+          "examples": [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "anthropic/claude-sonnet-4-20250514"
+          ]
+        },
+        "archexa.endpoint": {
+          "type": "string",
+          "default": "https://api.openai.com/v1/",
+          "description": "API base URL. Change for OpenRouter, Azure, Ollama, vLLM."
+        },
+        "archexa.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Full path to archexa binary. Set automatically on first install."
+        },
+        "archexa.binaryVersion": {
+          "type": "string",
+          "default": "",
+          "description": "Installed binary version. Managed automatically."
+        },
+        "archexa.deepByDefault": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use deep (agentic) mode by default for all commands."
+        },
+        "archexa.deepMaxIterations": {
+          "type": "number",
+          "default": 15,
+          "minimum": 3,
+          "maximum": 30,
+          "description": "Max agent iterations in deep mode."
+        },
+        "archexa.cacheEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Cache tree-sitter evidence between runs."
+        },
+        "archexa.showInlineFindings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show review findings as inline squiggles in the editor."
+        },
+        "archexa.autoReviewOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-run quick review on file save."
+        },
+        "archexa.outputDir": {
+          "type": "string",
+          "default": ".archexa",
+          "description": "Directory for saved output markdown files (relative to workspace root)."
+        },
+        "archexa.promptBudget": {
+          "type": "number",
+          "default": 120000,
+          "description": "Max tokens for LLM prompt. Increase for models with larger context windows."
+        },
+        "archexa.promptReserve": {
+          "type": "number",
+          "default": 16000,
+          "description": "Tokens reserved for LLM output."
+        },
+        "archexa.maxHistory": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 200,
+          "description": "Max results to keep in the sidebar history."
+        },
+        "archexa.maxFiles": {
+          "type": "number",
+          "default": 100,
+          "description": "Max files selected for analysis."
+        },
+        "archexa.fileSizeLimit": {
+          "type": "number",
+          "default": 300000,
+          "description": "Skip files larger than this (bytes)."
+        },
+        "archexa.logLevel": {
+          "type": "string",
+          "default": "WARNING",
+          "enum": [
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR"
+          ],
+          "description": "CLI log verbosity. Visible in Output > Archexa."
+        },
+        "archexa.tlsVerify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verify TLS certificates. Disable for local endpoints with self-signed certs."
+        },
+        "archexa.promptDiagnose": {
+          "type": "string",
+          "default": "",
+          "description": "Custom instructions appended to the diagnose system prompt."
+        },
+        "archexa.promptReview": {
+          "type": "string",
+          "default": "",
+          "description": "Custom instructions appended to the review system prompt."
+        },
+        "archexa.promptQuery": {
+          "type": "string",
+          "default": "",
+          "description": "Custom instructions appended to the query system prompt."
+        },
+        "archexa.promptImpact": {
+          "type": "string",
+          "default": "",
+          "description": "Custom instructions appended to the impact system prompt."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production && vsce package",
+    "publish": "node esbuild.js --production && vsce publish",
+    "test": "node ./out/test/runTest.js",
+    "test:unit": "tsc -p tsconfig.json && mocha out/test/**/*.test.js --timeout 10000"
+  },
+  "dependencies": {
+    "marked": "^9.1.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^18.0.0",
+    "@types/sinon": "^21.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.3.0",
+    "esbuild": "^0.20.0",
+    "mocha": "^11.7.5",
+    "sinon": "^21.0.3",
+    "typescript": "^5.0.0"
+  }
+}

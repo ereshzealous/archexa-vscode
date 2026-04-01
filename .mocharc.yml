@@ -1,0 +1,4 @@
+timeout: 10000
+require:
+  - out/test/setup.js
+spec: out/test/**/*.test.js

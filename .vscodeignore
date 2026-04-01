@@ -1,0 +1,10 @@
+**/.git/**
+**/node_modules/**
+src/**
+out/**
+*.ts
+!dist/**
+esbuild.js
+tsconfig.json
+.eslintrc*
+.github/**
