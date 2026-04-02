@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { getNonce } from "./utils/platform.js";
 
 export interface HistoryEntry {
   id: string;
@@ -35,7 +36,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       vscode.Uri.joinPath(this.ctx.extensionUri, "media", "sidebar.css")
     );
 
-    view.webview.html = this.getHtml(cssUri);
+    const nonce = getNonce();
+    view.webview.html = this.getHtml(cssUri, nonce);
     this.refresh();
 
     view.webview.onDidReceiveMessage((msg: { type: string; command?: string; entry?: HistoryEntry }) => {
@@ -128,16 +130,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     return date.toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short" });
   }
 
-  private getHtml(cssUri: vscode.Uri): string {
+  private getHtml(cssUri: vscode.Uri, nonce: string): string {
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${this.view!.webview.cspSource}; script-src 'nonce-SB';" />
+    content="default-src 'none'; style-src ${this.view!.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${this.view!.webview.cspSource} data:;" />
   <link href="${cssUri}" rel="stylesheet"/>
 </head>
 <body>
+  <div class="sidebar-scroll">
   <!-- Status -->
   <div class="status-card">
     <div class="status-row">
@@ -243,13 +246,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     <div class="history-empty">No results yet. Run a command to get started.</div>
   </div>
 
+  </div><!-- end sidebar-scroll -->
+
   <!-- Footer -->
   <div class="sidebar-footer">
     <button class="footer-btn" data-cmd="archexa.openSettings">⚙ Settings</button>
     <button class="footer-btn" data-cmd="archexa.checkBinary">↻ Update</button>
   </div>
 
-  <script nonce="SB">
+  <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();
 
     // Command clicks
@@ -314,7 +319,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
       let html = "";
       let lastGroup = "";
-      for (const item of historyData.slice(0, 15)) {
+      for (const item of historyData) {
         if (item.group !== lastGroup) {
           html += '<div class="history-group">' + item.group + '</div>';
           lastGroup = item.group;

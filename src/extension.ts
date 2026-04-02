@@ -15,6 +15,7 @@ import { registerQueryCommands } from "./commands/query.js";
 import { registerImpactCommands } from "./commands/impact.js";
 import { registerGistCommands } from "./commands/gist.js";
 import { registerAnalyzeCommands } from "./commands/analyze.js";
+import { registerExplainCommands } from "./commands/explain.js";
 import { WelcomeWebview } from "./welcomeWebview.js";
 
 const SUPPORTED_LANG_IDS = new Set([
@@ -105,6 +106,7 @@ export async function activate(
     ...registerImpactCommands(services),
     ...registerGistCommands(services),
     ...registerAnalyzeCommands(services),
+    ...registerExplainCommands(services),
 
     vscode.commands.registerCommand("archexa.cancelCurrentRun", () => {
       statusBar.cancelCurrentRun();

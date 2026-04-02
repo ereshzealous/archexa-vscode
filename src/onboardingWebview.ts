@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { BinaryManager } from "./binaryManager.js";
 import { Logger } from "./utils/logger.js";
+import { getNonce } from "./utils/platform.js";
 
 export class OnboardingWebview {
   private panel: vscode.WebviewPanel | undefined;
@@ -34,7 +35,8 @@ export class OnboardingWebview {
       vscode.Uri.joinPath(this.ctx.extensionUri, "media", "onboarding.css")
     );
 
-    this.panel.webview.html = this.getHtml(cssUri);
+    const nonce = getNonce();
+    this.panel.webview.html = this.getHtml(cssUri, nonce);
     this.panel.onDidDispose(() => {
       this.panel = undefined;
     });
@@ -106,14 +108,14 @@ export class OnboardingWebview {
     }
   }
 
-  private getHtml(cssUri: vscode.Uri): string {
+  private getHtml(cssUri: vscode.Uri, nonce: string): string {
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${this.panel!.webview.cspSource}; script-src 'nonce-ONBOARD';" />
+    content="default-src 'none'; style-src ${this.panel!.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${this.panel!.webview.cspSource} data:;" />
   <link href="${cssUri}" rel="stylesheet"/>
 </head>
 <body>
@@ -208,7 +210,7 @@ export class OnboardingWebview {
     </div>
   </div>
 
-  <script nonce="ONBOARD">
+  <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();
 
     const STEP_MAP = {

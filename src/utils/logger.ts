@@ -17,6 +17,7 @@ export class Logger {
 
   error(m: string): void {
     this.write("ERROR", m);
+    this.channel.show(true); // auto-reveal on errors so user sees the output
   }
 
   debug(m: string): void {

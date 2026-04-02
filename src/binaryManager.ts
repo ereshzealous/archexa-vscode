@@ -22,8 +22,8 @@ interface VersionManifest {
 const PLATFORM_ASSET: Record<string, string> = {
   "darwin-arm64":  "archexa-macos-arm64",
   "darwin-x64":    "archexa-macos-x86_64",
-  "linux-arm64":   "archexa-linux-arm64",
   "linux-x64":     "archexa-linux-x86_64",
+  "linux-arm64":   "archexa-linux-arm64",
   "win32-x64":     "archexa-windows-x86_64.exe",
 };
 

@@ -20,7 +20,8 @@ export const DEFAULTS = {
 /** Generate archexa.yaml content from current VS Code settings */
 export function generateConfigYaml(): string {
   const cfg = vscode.workspace.getConfiguration("archexa");
-  return [
+
+  const lines: string[] = [
     "archexa:",
     '  source: "."',
     "  openai:",
@@ -39,6 +40,60 @@ export function generateConfigYaml(): string {
     `    prompt_reserve: ${cfg.get<number>("promptReserve") ?? DEFAULTS.promptReserve}`,
     "  evidence:",
     `    file_size_limit: ${cfg.get<number>("fileSizeLimit") ?? DEFAULTS.fileSizeLimit}`,
-    "",
-  ].join("\n");
+  ];
+
+  // Only include custom prompts if non-empty
+  // CLI keys: user (= analyze/all), gist, query, impact, review, diagnose
+  const promptMap: Array<[string, string]> = [
+    ["diagnose", "promptDiagnose"],
+    ["review", "promptReview"],
+    ["query", "promptQuery"],
+    ["impact", "promptImpact"],
+    ["gist", "promptGist"],
+    ["user", "promptAnalyze"],  // CLI "user" prompt = analyze/all commands
+  ];
+  const prompts: Array<[string, string]> = [];
+  for (const [cliKey, settingKey] of promptMap) {
+    const val = cfg.get<string>(settingKey)?.trim();
+    if (val) prompts.push([cliKey, val]);
+  }
+  if (prompts.length > 0) {
+    lines.push("  prompts:");
+    for (const [cmd, text] of prompts) {
+      lines.push(`    ${cmd}: |`);
+      for (const pLine of text.split("\n")) {
+        lines.push(`      ${pLine}`);
+      }
+    }
+  }
+
+  // Review default target
+  const reviewTarget = cfg.get<string>("reviewTarget")?.trim();
+  if (reviewTarget) {
+    lines.push("  review:");
+    lines.push(`    target: "${reviewTarget}"`);
+  }
+
+  // Scan focus directories
+  const scanFocus = cfg.get<string[]>("scanFocus") ?? [];
+  if (scanFocus.length > 0) {
+    lines.push("  scan_focus:");
+    for (const dir of scanFocus) {
+      lines.push(`    - "${dir}"`);
+    }
+  }
+
+  // Exclude patterns — merge defaults with user-configured patterns
+  const defaultExcludePatterns = [".archexa/**", ".archexa_cache/**", "generated/**"];
+  const userPatterns = cfg.get<string[]>("excludePatterns") ?? [];
+  const allPatterns = [...new Set([...defaultExcludePatterns, ...userPatterns])];
+  if (allPatterns.length > 0) {
+    lines.push("  exclude_patterns:");
+    for (const pat of allPatterns) {
+      lines.push(`    - "${pat}"`);
+    }
+  }
+
+  lines.push("");
+  return lines.join("\n");
 }

@@ -1,8 +1,31 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { marked } from "marked";
+import { getNonce } from "./utils/platform.js";
 
-type CommandType = "diagnose" | "review" | "query" | "impact" | "gist" | "analyze";
+type CommandType = "diagnose" | "review" | "query" | "impact" | "gist" | "analyze" | "explain";
+
+/** Known source file extensions for file:line linkification */
+const FILE_EXTS = "py|ts|tsx|js|jsx|go|java|rs|rb|cs|kt|cpp|c|h|hpp|php|yaml|yml|json|md|toml|cfg|ini|sh|bash|sql|html|css|scss|xml|proto|graphql|tf|hcl";
+
+/**
+ * Post-process rendered HTML to make file:line references clickable.
+ * Matches patterns like `src/foo.py:42` or `api/auth.py:7`.
+ * Avoids false positives like version strings (node:14), timestamps, or port numbers.
+ */
+function linkifyFileRefs(html: string): string {
+  // Match: optional backtick, path with at least one segment containing a known extension, colon, line number, optional backtick
+  const pattern = new RegExp(
+    `(?<!\\/\\/)(?:^|(?<=[ \\t(>"'\`]))` +
+    `([\\w./@-]+\\.(?:${FILE_EXTS})):(\\d+)` +
+    `(?=[ \\t)<"'\`,;]|$)`,
+    "gm"
+  );
+  return html.replace(pattern, (_match, filePath: string, line: string) => {
+    const escaped = filePath.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return `<a class="file-link" data-file="${escaped}" data-line="${line}" title="Open ${escaped}:${line}">${escaped}:${line}</a>`;
+  });
+}
 
 const COMMAND_LABELS: Record<CommandType, string> = {
   diagnose: "Diagnose",
@@ -11,6 +34,7 @@ const COMMAND_LABELS: Record<CommandType, string> = {
   impact: "Impact",
   gist: "Gist",
   analyze: "Analyze",
+  explain: "Explain",
 };
 
 export class ArchexaWebviewPanel {
@@ -33,6 +57,17 @@ export class ArchexaWebviewPanel {
         if (val === this) {
           ArchexaWebviewPanel.panels.delete(key);
         }
+      }
+    });
+    // Register message handler once per panel lifetime (not per reset)
+    panel.webview.onDidReceiveMessage((msg: { type: string; file?: string; line?: number }) => {
+      switch (msg.type) {
+        case "save":
+          void this.saveToFile();
+          break;
+        case "openFile":
+          if (msg.file) void this.openFileAtLine(msg.file, msg.line ?? 1);
+          break;
       }
     });
   }
@@ -84,12 +119,6 @@ export class ArchexaWebviewPanel {
     setTimeout(() => {
       this.panel.webview.postMessage({ type: "resetState" });
     }, 50);
-
-    this.panel.webview.onDidReceiveMessage((msg: { type: string }) => {
-      if (msg.type === "save") {
-        void this.saveToFile();
-      }
-    });
   }
 
   appendChunk(text: string): void {
@@ -102,7 +131,7 @@ export class ArchexaWebviewPanel {
       clearTimeout(this.debounceTimer);
     }
     this.debounceTimer = setTimeout(() => {
-      const html = marked.parse(this.buffer) as string;
+      const html = linkifyFileRefs(marked.parse(this.buffer) as string);
       this.panel.webview.postMessage({ type: "chunk", html });
     }, 80);
   }
@@ -161,7 +190,7 @@ export class ArchexaWebviewPanel {
       clearTimeout(this.debounceTimer);
     }
     if (this.buffer) {
-      const html = marked.parse(this.buffer) as string;
+      const html = linkifyFileRefs(marked.parse(this.buffer) as string);
       this.panel.webview.postMessage({ type: "chunk", html });
     }
     this.panel.webview.postMessage({
@@ -193,7 +222,7 @@ export class ArchexaWebviewPanel {
 
     // Small delay so webview initializes
     setTimeout(() => {
-      const html = marked.parse(markdown) as string;
+      const html = linkifyFileRefs(marked.parse(markdown) as string);
       this.panel.webview.postMessage({ type: "chunk", html });
       this.panel.webview.postMessage({
         type: "done",
@@ -206,6 +235,25 @@ export class ArchexaWebviewPanel {
 
   getBuffer(): string {
     return this.buffer;
+  }
+
+  private async openFileAtLine(filePath: string, line: number): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Resolve: absolute path wins, otherwise join with workspace root
+    const resolved = path.isAbsolute(filePath)
+      ? filePath
+      : workspaceRoot
+        ? path.join(workspaceRoot, filePath)
+        : filePath;
+    try {
+      const doc = await vscode.workspace.openTextDocument(resolved);
+      const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+      const pos = new vscode.Position(Math.max(0, line - 1), 0);
+      editor.selection = new vscode.Selection(pos, pos);
+      editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+    } catch {
+      vscode.window.showWarningMessage(`Could not open: ${filePath}`);
+    }
   }
 
   private async saveToFile(): Promise<void> {
@@ -236,13 +284,14 @@ export class ArchexaWebviewPanel {
 
   private getHtml(cssUri: vscode.Uri): string {
     const label = COMMAND_LABELS[this.commandType] ?? "Archexa";
+    const nonce = getNonce();
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${this.panel.webview.cspSource}; script-src 'nonce-PANEL';" />
+    content="default-src 'none'; style-src ${this.panel.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${this.panel.webview.cspSource} data:;" />
   <link href="${cssUri}" rel="stylesheet"/>
 </head>
 <body>
@@ -270,7 +319,7 @@ export class ArchexaWebviewPanel {
   <div id="content"></div>
   <span id="cursor"></span>
 
-  <script nonce="PANEL">
+  <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();
     const contentEl = document.getElementById("content");
     const spinnerEl = document.getElementById("spinner");
@@ -386,6 +435,19 @@ export class ArchexaWebviewPanel {
 
     saveBtn.addEventListener("click", () => {
       vscodeApi.postMessage({ type: "save" });
+    });
+
+    // Clickable file:line references
+    document.addEventListener("click", (e) => {
+      const link = e.target.closest(".file-link");
+      if (link) {
+        e.preventDefault();
+        vscodeApi.postMessage({
+          type: "openFile",
+          file: link.dataset.file,
+          line: parseInt(link.dataset.line, 10) || 1,
+        });
+      }
     });
   </script>
 </body>
