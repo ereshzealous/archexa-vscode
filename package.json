@@ -32,6 +32,12 @@
   "contributes": {
     "commands": [
       {
+        "command": "archexa.explainSelection",
+        "title": "Explain This",
+        "category": "Archexa",
+        "icon": "$(lightbulb)"
+      },
+      {
         "command": "archexa.diagnoseSelection",
         "title": "Diagnose Selected Error",
         "category": "Archexa",
@@ -170,6 +176,11 @@
       ],
       "archexa.editorSubmenu": [
         {
+          "command": "archexa.explainSelection",
+          "group": "0_explain@1",
+          "when": "editorHasSelection"
+        },
+        {
           "command": "archexa.diagnoseSelection",
           "group": "1_diagnose@1",
           "when": "editorHasSelection"
@@ -191,12 +202,16 @@
           "group": "3_query@1"
         },
         {
-          "command": "archexa.gist",
-          "group": "3_query@2"
-        },
-        {
           "command": "archexa.impactFile",
           "group": "4_impact@1"
+        },
+        {
+          "command": "archexa.gist",
+          "group": "9_other@1"
+        },
+        {
+          "command": "archexa.analyze",
+          "group": "9_other@2"
         }
       ],
       "archexa.explorerSubmenu": [
@@ -408,6 +423,33 @@
           "type": "string",
           "default": "",
           "description": "Custom instructions appended to the impact system prompt."
+        },
+        "archexa.promptGist": {
+          "type": "string",
+          "default": "",
+          "description": "Custom instructions appended to the gist system prompt."
+        },
+        "archexa.promptAnalyze": {
+          "type": "string",
+          "default": "",
+          "description": "Custom instructions appended to the analyze (full architecture) system prompt. Also applies as a base prompt to all commands."
+        },
+        "archexa.excludePatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [".archexa/**", ".archexa_cache/**", "generated/**"],
+          "description": "Glob patterns to exclude from file scanning (e.g. *.test.ts, vendor/**, migrations/**)."
+        },
+        "archexa.scanFocus": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Directory prefixes to focus scanning on. Leave empty to scan everything."
+        },
+        "archexa.reviewTarget": {
+          "type": "string",
+          "default": "",
+          "description": "Default target file(s) for review (comma-separated). CLI --target overrides this."
         }
       }
     }

@@ -4,11 +4,13 @@ import * as http from "http";
 import * as fs from "fs";
 import * as path from "path";
 import { generateConfigYaml } from "./utils/config.js";
+import { getNonce } from "./utils/platform.js";
 
 const SECTIONS = [
   { id: "binary", icon: "◈", label: "Binary" },
   { id: "connection", icon: "◎", label: "Connection" },
   { id: "agent", icon: "◉", label: "Agent" },
+  { id: "scanning", icon: "◈", label: "Scanning" },
   { id: "cache", icon: "◆", label: "Cache" },
   { id: "prompts", icon: "▤", label: "Prompts" },
   { id: "output", icon: "▣", label: "Output" },
@@ -50,7 +52,7 @@ export class SettingsWebview {
       vscode.Uri.joinPath(this.ctx.extensionUri, "media", "settings.css")
     );
 
-    this.panel.webview.html = this.getHtml(cssUri);
+    this.panel.webview.html = this.getHtml(cssUri, getNonce());
     this.panel.onDidDispose(() => {
       this.panel = undefined;
     });
@@ -88,7 +90,8 @@ export class SettingsWebview {
       "showInlineFindings", "autoReviewOnSave", "outputDir",
       "promptBudget", "promptReserve", "maxFiles", "fileSizeLimit", "maxHistory",
       "logLevel", "tlsVerify",
-      "promptDiagnose", "promptReview", "promptQuery", "promptImpact",
+      "promptDiagnose", "promptReview", "promptQuery", "promptImpact", "promptGist", "promptAnalyze",
+      "excludePatterns", "scanFocus", "reviewTarget",
     ];
     for (const prop of props) {
       config[prop] = cfg.get(prop);
@@ -276,7 +279,8 @@ export class SettingsWebview {
     });
   }
 
-  private getHtml(cssUri: vscode.Uri): string {
+  private getHtml(cssUri: vscode.Uri, nonce?: string): string {
+    const n = nonce ?? getNonce();
     const navItems = SECTIONS.map(
       (s) =>
         `<div class="nav-item${s.id === "binary" ? " active" : ""}" data-section="${s.id}">${s.icon} ${s.label}</div>`
@@ -288,7 +292,7 @@ export class SettingsWebview {
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${this.panel!.webview.cspSource}; script-src 'nonce-SETTINGS';" />
+    content="default-src 'none'; style-src ${this.panel!.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${n}'; img-src ${this.panel!.webview.cspSource} data:;" />
   <link href="${cssUri}" rel="stylesheet"/>
 </head>
 <body>
@@ -394,11 +398,47 @@ export class SettingsWebview {
           faster but less thorough. Deep mode uses 3-10x more tokens but finds cross-file issues
           that pipeline mode misses.
         </div>
+        <div class="info-box">
+          <strong>Per-command deep mode behavior</strong><br/>
+          <table style="width:100%;font-size:0.85em;margin-top:6px;border-collapse:collapse">
+            <tr style="border-bottom:1px solid var(--vscode-editorGroup-border)">
+              <td style="padding:3px 6px"><strong>Diagnose</strong></td>
+              <td style="padding:3px 6px">Always deep</td>
+              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Root-cause requires tracing call chains</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--vscode-editorGroup-border)">
+              <td style="padding:3px 6px"><strong>Review</strong></td>
+              <td style="padding:3px 6px">Uses this setting</td>
+              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Deep mode traces callers across files; pipeline is faster for focused reviews</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--vscode-editorGroup-border)">
+              <td style="padding:3px 6px"><strong>Impact</strong></td>
+              <td style="padding:3px 6px">Uses this setting</td>
+              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Deep mode traces callers and consumers across boundaries</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--vscode-editorGroup-border)">
+              <td style="padding:3px 6px"><strong>Query</strong></td>
+              <td style="padding:3px 6px">Uses this setting</td>
+              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Not every question needs deep investigation</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--vscode-editorGroup-border)">
+              <td style="padding:3px 6px"><strong>Gist</strong></td>
+              <td style="padding:3px 6px">Uses this setting</td>
+              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Overview works well with pipeline extraction</td>
+            </tr>
+            <tr>
+              <td style="padding:3px 6px"><strong>Analyze</strong></td>
+              <td style="padding:3px 6px">Uses this setting</td>
+              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Full architecture uses evidence extraction pipeline</td>
+            </tr>
+          </table>
+        </div>
         <div class="toggle-row">
           <div class="toggle-track on" data-key="archexa.deepByDefault" id="deepToggle">
             <div class="toggle-thumb"></div>
           </div>
           <span class="toggle-label">Deep mode by default</span>
+          <span style="font-size:0.78em;color:var(--vscode-descriptionForeground);margin-left:6px">Applies to all commands except Diagnose (always deep)</span>
         </div>
         <div class="field">
           <label class="field-label">Max iterations</label>
@@ -424,20 +464,12 @@ export class SettingsWebview {
       </div>
 
       <!-- CACHE -->
-      <div class="section" id="sec-cache">
-        <h2>Cache</h2>
+      <!-- SCANNING -->
+      <div class="section" id="sec-scanning">
+        <h2>Scanning</h2>
         <div class="info-box">
-          <strong>How caching works</strong><br/>
-          Archexa caches per-file evidence extraction (AST parsing, pattern matching, import graphs).
-          On subsequent runs, unchanged files are served from cache — making scans <strong>2-5x faster</strong>.<br/><br/>
-          <strong>When to disable:</strong> If you're debugging extraction issues or just made major structural changes
-          to many files. Use <code>--fresh</code> via CLI for a one-time bypass.
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-track on" data-key="archexa.cacheEnabled" id="cacheToggle">
-            <div class="toggle-thumb"></div>
-          </div>
-          <span class="toggle-label">Enable cache</span>
+          Controls which files Archexa indexes and analyzes. All commands respect these settings.
+          The configured output directory is always excluded automatically.
         </div>
         <div class="field">
           <label class="field-label">Scan focus (directories)</label>
@@ -459,6 +491,24 @@ export class SettingsWebview {
             <code>vendor/**</code> · <code>dist/**</code> · <code>*.generated.*</code> ·
             <code>migrations/**</code> · <code>*.pb.go</code>
           </div>
+        </div>
+      </div>
+
+      <!-- CACHE -->
+      <div class="section" id="sec-cache">
+        <h2>Cache</h2>
+        <div class="info-box">
+          <strong>How caching works</strong><br/>
+          Archexa caches per-file evidence extraction (AST parsing, pattern matching, import graphs).
+          On subsequent runs, unchanged files are served from cache — making scans <strong>2-5x faster</strong>.<br/><br/>
+          <strong>When to disable:</strong> If you're debugging extraction issues or just made major structural changes
+          to many files. Use <code>--fresh</code> via CLI for a one-time bypass.
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-track on" data-key="archexa.cacheEnabled" id="cacheToggle">
+            <div class="toggle-thumb"></div>
+          </div>
+          <span class="toggle-label">Enable cache</span>
         </div>
         <div class="btn-row">
           <button class="btn-secondary" id="btnClearCache">Clear Cache</button>
@@ -492,9 +542,19 @@ export class SettingsWebview {
           <div class="field-hint">Appended when asking questions about the codebase.</div>
         </div>
         <div class="field">
-          <label class="field-label"><span class="prompt-indicator unset" id="pi-impact"></span>⚡ Impact</label>
+          <label class="field-label"><span class="prompt-indicator unset" id="pi-impact"></span>Impact</label>
           <textarea class="prompt-area" id="promptImpact" data-key="archexa.promptImpact" placeholder="e.g. We have downstream consumers via gRPC — check proto file compatibility. Also check database migration impact."></textarea>
           <div class="field-hint">Appended when analyzing change impact.</div>
+        </div>
+        <div class="field">
+          <label class="field-label"><span class="prompt-indicator unset" id="pi-gist"></span>Gist</label>
+          <textarea class="prompt-area" id="promptGist" data-key="archexa.promptGist" placeholder="e.g. Focus on the public API surface and deployment architecture. Skip test utilities."></textarea>
+          <div class="field-hint">Appended when generating a quick gist overview.</div>
+        </div>
+        <div class="field">
+          <label class="field-label"><span class="prompt-indicator unset" id="pi-analyze"></span>Analyze (All)</label>
+          <textarea class="prompt-area" id="promptAnalyze" data-key="archexa.promptAnalyze" placeholder="e.g. Include Mermaid diagrams for data flow. Focus on the microservices boundaries and inter-service communication."></textarea>
+          <div class="field-hint">Appended to the full architecture analysis. Also serves as a base prompt applied to all commands.</div>
         </div>
       </div>
 
@@ -637,7 +697,7 @@ export class SettingsWebview {
 
   <div class="save-toast" id="saveToast">✓ Saved</div>
 
-  <script nonce="SETTINGS">
+  <script nonce="${n}">
     const vscodeApi = acquireVsCodeApi();
     let currentConfig = {};
 
@@ -736,13 +796,37 @@ export class SettingsWebview {
       else { inp.type = "password"; btn.textContent = "Show"; }
     });
 
-    // Tag inputs
+    // Tag inputs — map container IDs to VS Code setting keys
+    const TAG_SETTINGS = {
+      "excludeTags": "archexa.excludePatterns",
+      "scanFocusTags": "archexa.scanFocus",
+    };
+
+    function collectTags(containerId) {
+      const tags = [];
+      document.getElementById(containerId).querySelectorAll(".tag").forEach(t => {
+        // Get text content minus the "×" remove button
+        const text = t.childNodes[0]?.textContent?.trim();
+        if (text) tags.push(text);
+      });
+      return tags;
+    }
+
+    function syncTagSetting(containerId) {
+      const key = TAG_SETTINGS[containerId];
+      if (key) {
+        vscodeApi.postMessage({ type: "update", key, value: collectTags(containerId) });
+        updateYaml();
+      }
+    }
+
     function wireTagInput(inputId, containerId) {
       document.getElementById(inputId).addEventListener("keydown", function(e) {
         if (e.key === "Enter" && this.value.trim()) {
           e.preventDefault();
           addTag(containerId, inputId, this.value.trim());
           this.value = "";
+          syncTagSetting(containerId);
         }
       });
     }
@@ -754,7 +838,15 @@ export class SettingsWebview {
       const input = document.getElementById(inputId);
       const tag = document.createElement("span");
       tag.className = "tag";
-      tag.innerHTML = text + ' <span class="tag-remove" onclick="this.parentElement.remove()">×</span>';
+      tag.textContent = text + " ";
+      const removeBtn = document.createElement("span");
+      removeBtn.className = "tag-remove";
+      removeBtn.textContent = "×";
+      removeBtn.addEventListener("click", () => {
+        tag.remove();
+        syncTagSetting(containerId);
+      });
+      tag.appendChild(removeBtn);
       container.insertBefore(tag, input);
     }
 
@@ -849,7 +941,7 @@ export class SettingsWebview {
       if (c.outputDir) document.getElementById("outputDir").value = c.outputDir;
       if (c.logLevel) document.getElementById("logLevel").value = c.logLevel;
 
-      ["Diagnose", "Review", "Query", "Impact"].forEach(name => {
+      ["Diagnose", "Review", "Query", "Impact", "Gist", "Analyze"].forEach(name => {
         const key = "prompt" + name;
         const el = document.getElementById(key);
         if (el && c[key]) {
@@ -861,6 +953,19 @@ export class SettingsWebview {
           }
         }
       });
+
+      // Tag-based fields: scan focus and exclude patterns
+      function loadTags(containerId, inputId, values) {
+        if (!Array.isArray(values)) return;
+        // Clear existing tags
+        const container = document.getElementById(containerId);
+        const input = document.getElementById(inputId);
+        container.querySelectorAll(".tag").forEach(t => t.remove());
+        // Add tags from config
+        values.forEach(v => { if (v) addTag(containerId, inputId, v); });
+      }
+      loadTags("scanFocusTags", "scanFocusInput", c.scanFocus || []);
+      loadTags("excludeTags", "excludeInput", c.excludePatterns || []);
 
       updateYaml();
     }
@@ -892,26 +997,39 @@ export class SettingsWebview {
       yaml += "  deep:\\n";
       yaml += "    enabled: " + deep + "\\n";
       yaml += "    max_iterations: " + maxIter + "\\n";
-      yaml += "  cache:\\n";
-      yaml += "    enabled: " + cache + "\\n";
-      yaml += "  output:\\n";
-      yaml += '    directory: "' + outputDir + '"\\n';
+      yaml += "  cache: " + cache + "\\n";
+      yaml += '  output: "' + outputDir + '"\\n';
+      yaml += '  log_level: "' + logLevel + '"\\n';
       yaml += "  limits:\\n";
       yaml += "    prompt_budget: " + budget + "\\n";
-      yaml += "  logging:\\n";
-      yaml += '    level: "' + logLevel + '"\\n';
 
       // Prompts
       const prompts = {};
-      ["Diagnose", "Review", "Query", "Impact"].forEach(name => {
+      ["Diagnose", "Review", "Query", "Impact", "Gist", "Analyze"].forEach(name => {
         const el = document.getElementById("prompt" + name);
         if (el && el.value.trim()) prompts[name.toLowerCase()] = el.value.trim();
       });
       if (Object.keys(prompts).length > 0) {
         yaml += "  prompts:\\n";
         for (const [k, v] of Object.entries(prompts)) {
-          yaml += "    " + k + ": |\\n      " + v.replace(/\\n/g, "\\n      ") + "\\n";
+          // CLI uses "user" for the analyze/all prompt
+          const cliKey = k === "analyze" ? "user" : k;
+          yaml += "    " + cliKey + ": |\\n      " + v.replace(/\\n/g, "\\n      ") + "\\n";
         }
+      }
+
+      // Scan focus
+      const focusTags = collectTags("scanFocusTags");
+      if (focusTags.length > 0) {
+        yaml += "  scan_focus:\\n";
+        focusTags.forEach(t => { yaml += '    - "' + t + '"\\n'; });
+      }
+
+      // Exclude patterns
+      const excludeTags = collectTags("excludeTags");
+      if (excludeTags.length > 0) {
+        yaml += "  exclude_patterns:\\n";
+        excludeTags.forEach(t => { yaml += '    - "' + t + '"\\n'; });
       }
 
       pre.textContent = yaml.replace(/\\n/g, "\\n");

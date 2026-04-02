@@ -7,6 +7,16 @@ body {
   font-size: 12px;
   padding: 0;
   overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Scrollable content area */
+.sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Status card */
@@ -220,6 +230,8 @@ body {
   border-top: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-editorGroup-border));
   display: flex;
   gap: 6px;
+  flex-shrink: 0;
+  background: var(--vscode-sideBar-background);
 }
 
 .footer-btn {

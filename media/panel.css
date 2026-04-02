@@ -196,4 +196,19 @@ hr {
   50% { opacity: 0; }
 }
 
+/* Clickable file:line references */
+.file-link {
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  text-decoration: none;
+  border-bottom: 1px dotted var(--vscode-textLink-foreground);
+}
+
+.file-link:hover {
+  text-decoration: underline;
+  border-bottom: none;
+}
+
 .hidden { display: none !important; }

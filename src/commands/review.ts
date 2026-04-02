@@ -95,22 +95,43 @@ export function registerReviewCommands(
   return [
     vscode.commands.registerCommand(
       "archexa.reviewFile",
-      async (uri?: vscode.Uri) => {
-        const fileUri = uri?.scheme === "file" ? uri : undefined;
-        const editorUri = vscode.window.activeTextEditor?.document.uri;
-        const resolvedUri = fileUri ?? (editorUri?.scheme === "file" ? editorUri : undefined);
-        const filePath = resolvedUri?.fsPath;
-        if (!filePath) {
-          vscode.window.showWarningMessage("Open a file to review");
-          return;
+      async (uri?: vscode.Uri, allUris?: vscode.Uri[]) => {
+        // Multi-select: VS Code passes all selected URIs as second arg
+        const fileUris = (allUris && allUris.length > 1)
+          ? allUris.filter(u => u.scheme === "file")
+          : undefined;
+
+        if (fileUris && fileUris.length > 1) {
+          // Multi-file review
+          const relPaths = fileUris.map(u => vscode.workspace.asRelativePath(u));
+          const target = relPaths.join(",");
+          const label = relPaths.length <= 3
+            ? relPaths.map(p => path.basename(p)).join(", ")
+            : `${relPaths.length} files`;
+          await runReview(
+            ["--target", target],
+            `Review — ${label}`,
+            undefined,
+            services
+          );
+        } else {
+          // Single file review
+          const fileUri = uri?.scheme === "file" ? uri : undefined;
+          const editorUri = vscode.window.activeTextEditor?.document.uri;
+          const resolvedUri = fileUri ?? (editorUri?.scheme === "file" ? editorUri : undefined);
+          const filePath = resolvedUri?.fsPath;
+          if (!filePath) {
+            vscode.window.showWarningMessage("Open a file to review");
+            return;
+          }
+          const relPath = vscode.workspace.asRelativePath(filePath);
+          await runReview(
+            ["--target", relPath],
+            `Review — ${path.basename(filePath)}`,
+            vscode.Uri.file(filePath),
+            services
+          );
         }
-        const relPath = vscode.workspace.asRelativePath(filePath);
-        await runReview(
-          ["--target", relPath],
-          `Review — ${path.basename(filePath)}`,
-          vscode.Uri.file(filePath),
-          services
-        );
       }
     ),
 

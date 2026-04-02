@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { getNonce } from "./utils/platform.js";
 
 export class WelcomeWebview {
   private static panel: vscode.WebviewPanel | undefined;
@@ -31,8 +32,9 @@ export class WelcomeWebview {
 
     const cfg = vscode.workspace.getConfiguration("archexa");
     const version = cfg.get<string>("binaryVersion") ?? "beta";
+    const nonce = getNonce();
 
-    panel.webview.html = buildHtml(panel.webview, cssUri, iconUri, version);
+    panel.webview.html = buildHtml(panel.webview, cssUri, iconUri, version, nonce);
 
     panel.webview.onDidReceiveMessage((msg: { type: string }) => {
       switch (msg.type) {
@@ -61,7 +63,8 @@ function buildHtml(
   webview: vscode.Webview,
   cssUri: vscode.Uri,
   iconUri: vscode.Uri,
-  version: string
+  version: string,
+  nonce: string
 ): string {
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
@@ -69,7 +72,7 @@ function buildHtml(
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src 'nonce-WEL';" />
+    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;" />
   <link href="${cssUri}" rel="stylesheet"/>
 </head>
 <body>
@@ -276,7 +279,7 @@ function buildHtml(
     github.com/ereshzealous/archexa
   </div>
 
-  <script nonce="WEL">
+  <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();
 
     document.getElementById("btnSettings").addEventListener("click", () => {

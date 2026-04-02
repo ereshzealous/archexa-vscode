@@ -61,11 +61,14 @@ export class ArchexaBridge {
     const configPath = this.resolveOrWriteConfig(workspaceRoot, cfg);
 
     // Minimal CLI flags — everything else comes from the config file
+    // CLI v0.4.0+: --stdout auto-disables ANSI color, so --no-color only needed without --stdout.
     const useStdout = opts.supportsStdout !== false && !this.stdoutUnsupported;
     const spawnArgs = [
-      ...(verbose ? [] : ["--quiet", "--no-color"]),
+      ...(useStdout ? [] : ["--no-color"]),
+      ...(verbose ? [] : ["--quiet"]),
       opts.command,
       ...(useStdout ? ["--stdout"] : []),
+      ...(opts.onFinding ? ["--json-findings"] : []),
       "--config", configPath,
       ...opts.args,
     ];
@@ -263,8 +266,12 @@ export class ArchexaBridge {
     }
   }
 
-  /** Redact API keys from log output */
+  /** Redact API keys and truncate long args for log output */
   private redactArgs(args: string[]): string {
-    return args.map((a) => (a.startsWith("sk-") || a.startsWith("sk_") ? "sk-***" : a)).join(" ");
+    return args.map((a) => {
+      if (a.startsWith("sk-") || a.startsWith("sk_")) return "sk-***";
+      if (a.length > 120) return a.slice(0, 120) + "…";
+      return a;
+    }).join(" ");
   }
 }
