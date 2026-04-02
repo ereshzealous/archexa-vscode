@@ -13,6 +13,8 @@ export interface RunOptions {
   onProgress?: (phase: number, total: number, label: string, detail: string) => void;
   onFinding?: (f: ReviewFinding) => void;
   onDone?: (durationMs: number, promptTokens: number, completionTokens: number) => void;
+  /** Called with each CLI stderr line (agent steps, tool calls, etc.) */
+  onLog?: (line: string) => void;
   token?: vscode.CancellationToken;
 }
 
@@ -113,6 +115,7 @@ export class ArchexaBridge {
       });
 
       let stderrBuf = "";
+      let lastStderrLine = "";
       proc.stderr.setEncoding("utf8");
       proc.stderr.on("data", (data: string) => {
         stderrBuf += data;
@@ -130,6 +133,8 @@ export class ArchexaBridge {
             } else {
               this.logger.debug(`stderr: ${trimmed}`);
             }
+            lastStderrLine = trimmed;
+            opts.onLog?.(trimmed);
             this.extractProgress(trimmed, opts);
           }
         }
@@ -157,7 +162,10 @@ export class ArchexaBridge {
         if (exitCode !== 0) {
           if (stdoutBuf.trim()) this.logger.error(`CLI stdout: ${stdoutBuf.trim()}`);
           if (stderrBuf.trim()) this.logger.error(`CLI stderr: ${stderrBuf.trim()}`);
-          reject(new Error(`Archexa exited ${exitCode}. View Output → Archexa for details.`));
+          // Extract the actual error message from stderr for a useful error
+          const errDetail = lastStderrLine.replace(/^.*?(Error:|ERROR)\s*/i, "").trim();
+          const errMsg = errDetail || `Archexa exited ${exitCode}`;
+          reject(new Error(errMsg));
           return;
         }
 

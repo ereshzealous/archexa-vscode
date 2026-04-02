@@ -16,6 +16,7 @@ import { registerImpactCommands } from "./commands/impact.js";
 import { registerGistCommands } from "./commands/gist.js";
 import { registerAnalyzeCommands } from "./commands/analyze.js";
 import { registerExplainCommands } from "./commands/explain.js";
+import { ChatWebview } from "./chatWebview.js";
 import { WelcomeWebview } from "./welcomeWebview.js";
 
 const SUPPORTED_LANG_IDS = new Set([
@@ -107,6 +108,11 @@ export async function activate(
     ...registerGistCommands(services),
     ...registerAnalyzeCommands(services),
     ...registerExplainCommands(services),
+
+    (() => {
+      const chat = new ChatWebview(ctx, services);
+      return vscode.commands.registerCommand("archexa.openChat", () => chat.show());
+    })(),
 
     vscode.commands.registerCommand("archexa.cancelCurrentRun", () => {
       statusBar.cancelCurrentRun();
