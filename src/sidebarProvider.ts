@@ -1793,7 +1793,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     const CMDS = [
       { id:"review",   type:"review",   slash:"/review",            args:"<file>",     desc:"Find bugs, security issues, risky patterns",  what:"Findings first \\u00B7 then explanation \\u00B7 editor squiggles" },
-      { id:"review2",  type:"review",   slash:"/review --changed",  args:"",           desc:"Review uncommitted changes",                  what:"Review your git changes" },
       { id:"diagnose", type:"diagnose", slash:"/diagnose",          args:"<error>",    desc:"Trace any error to its root cause",           what:"Call chain first \\u00B7 root cause \\u00B7 fix" },
       { id:"impact",   type:"impact",   slash:"/impact",            args:"<file>",     desc:"What breaks if this changes?",                what:"Trace callers and consumers" },
       { id:"query",    type:"query",    slash:"/query",             args:"<question>", desc:"Ask anything about your codebase",             what:"Deep investigation with citations" },
