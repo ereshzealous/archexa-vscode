@@ -1221,6 +1221,40 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     .prompt-indicator.unset { background: var(--vscode-editorGroup-border); }
     .prompt-indicator.set { background: var(--vscode-terminal-ansiGreen, #3fb950); }
 
+    /* Exclusion pattern chip container */
+    .exclude-chips-container {
+      background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-input-border, var(--vscode-editorGroup-border));
+      border-radius: 5px;
+      padding: 4px 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+      transition: border-color .12s;
+      cursor: text;
+    }
+    .exclude-chips-container:focus-within {
+      border-color: var(--vscode-focusBorder);
+    }
+    .exclude-chips {
+      display: contents;
+    }
+    .exclude-chip-input {
+      flex: 1;
+      min-width: 80px;
+      background: transparent !important;
+      border: none !important;
+      padding: 3px 4px !important;
+      font-family: var(--vscode-editor-font-family);
+      font-size: 11px;
+      color: var(--vscode-input-foreground);
+      outline: none !important;
+    }
+    .exclude-chip-input::placeholder {
+      color: var(--vscode-input-placeholderForeground);
+    }
+
     .save-toast {
       display: none; position: fixed; bottom: 16px; right: 16px;
       background: var(--vscode-terminal-ansiGreen, #3fb950); color: #000;
@@ -1303,7 +1337,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
       <!-- Hero + Commands -->
       <div class="home-hero">
-        <div class="home-hero-icon"><svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="20" width="4" height="10" rx="1" fill="currentColor" opacity="0.3"/><rect x="10" y="14" width="4" height="16" rx="1" fill="currentColor" opacity="0.5"/><rect x="16" y="8" width="4" height="22" rx="1" fill="currentColor" opacity="0.7"/><rect x="22" y="2" width="4" height="28" rx="1" fill="currentColor" opacity="0.9"/><line x1="3" y1="30" x2="28" y2="30" stroke="currentColor" stroke-width="1.5" opacity="0.4"/></svg></div>
+        <div class="home-hero-icon"><svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 0 8px rgba(56,139,253,0.3))"><rect x="4" y="20" width="4" height="10" rx="1" fill="var(--vscode-textLink-foreground)" opacity="0.4"/><rect x="10" y="14" width="4" height="16" rx="1" fill="var(--vscode-textLink-foreground)" opacity="0.6"/><rect x="16" y="8" width="4" height="22" rx="1" fill="var(--vscode-textLink-foreground)" opacity="0.8"/><rect x="22" y="2" width="4" height="28" rx="1" fill="var(--vscode-textLink-foreground)" opacity="1"/><line x1="3" y1="30" x2="28" y2="30" stroke="var(--vscode-editorWarning-foreground)" stroke-width="1.5" opacity="0.7"/></svg></div>
         <h2>Understand your code</h2>
         <p>Independent investigations. No memory. Just accurate answers.</p>
       </div>
@@ -1626,8 +1660,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         </div>
         <div class="field" style="margin-top:10px">
           <div class="field-label" style="margin-bottom:4px">Exclusion patterns</div>
-          <input type="text" id="excludePatterns" data-key="archexa.excludePatterns" placeholder="e.g. *.test.ts, dist/**, __pycache__/**"/>
-          <div class="field-hint">Comma-separated glob patterns. These files are never read by the agent.</div>
+          <div id="excludePatternsContainer" class="exclude-chips-container">
+            <div id="excludeChips" class="exclude-chips"></div>
+            <input type="text" id="excludePatternsInput" class="exclude-chip-input" placeholder="Add pattern, press Enter"/>
+          </div>
+          <div class="field-hint">Glob patterns. Press Enter to add. These files are never read by the agent.</div>
         </div>
 
         <div class="section-label">Agent</div>
@@ -1691,6 +1728,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     <div class="context-strip" id="contextStrip"></div>
     <div id="intentBadge" style="display:none"></div>
     <div id="slashMenu" style="display:none" class="slash-menu"></div>
+    <div id="fileChips" class="file-chips"></div>
     <div class="input-row">
       <textarea id="chatInput" rows="1" placeholder="Ask a follow-up or start new."></textarea>
       <button id="sendBtn">Send</button>
@@ -1726,6 +1764,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       // Input area visible on home + chat, hidden on settings
       inputArea.style.display = (name === "settings") ? "none" : "block";
       if (name === "home") renderHistory();
+      // Clear file chips when switching screens
+      clearFileChips();
     }
 
     // ── SVG codicons (16x16, currentColor, VS Code native style) ──
@@ -1824,6 +1864,73 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     let fileMenuIdx = -1;
     const FILE_CMDS = ["/review", "/impact", "/diagnose"];
 
+    // ── File chips state ──
+    const fileChipsEl = document.getElementById("fileChips");
+    let fileChipsList = [];
+
+    function addFileChip(filePath) {
+      filePath = filePath.trim();
+      if (!filePath || fileChipsList.includes(filePath)) return;
+      fileChipsList.push(filePath);
+      renderFileChips();
+    }
+
+    function removeFileChip(filePath) {
+      fileChipsList = fileChipsList.filter(f => f !== filePath);
+      renderFileChips();
+    }
+
+    function renderFileChips() {
+      fileChipsEl.innerHTML = fileChipsList.map(f =>
+        '<span class="file-chip" data-file="' + f + '">' + f + ' <span class="chip-x" data-file="' + f + '">\\u00D7</span></span>'
+      ).join("");
+      fileChipsEl.querySelectorAll(".chip-x").forEach(x => {
+        x.addEventListener("click", (e) => {
+          e.stopPropagation();
+          removeFileChip(x.dataset.file);
+        });
+      });
+    }
+
+    function clearFileChips() {
+      fileChipsList = [];
+      fileChipsEl.innerHTML = "";
+    }
+
+    function getActiveFileCommand() {
+      const val = chatInput.value;
+      for (const cmd of FILE_CMDS) {
+        if (val.startsWith(cmd + " ") || val === cmd) return cmd;
+      }
+      return null;
+    }
+
+    function tryExtractFileChip() {
+      const cmd = getActiveFileCommand();
+      if (!cmd) return;
+      const rest = chatInput.value.slice(cmd.length + 1);
+      // Check if user typed a comma after a file path
+      if (rest.endsWith(",")) {
+        const path = rest.slice(0, -1).trim();
+        if (path && !path.startsWith("-")) {
+          // Could be comma-separated: extract the last segment
+          const lastComma = path.lastIndexOf(",");
+          const segment = lastComma >= 0 ? path.slice(lastComma + 1).trim() : path.trim();
+          if (segment) {
+            addFileChip(segment);
+            // Also add any previous segments that weren't chipped
+            if (lastComma >= 0) {
+              path.slice(0, lastComma).split(",").forEach(s => {
+                s = s.trim();
+                if (s) addFileChip(s);
+              });
+            }
+            chatInput.value = cmd + " ";
+          }
+        }
+      }
+    }
+
     function getFilePrefix() {
       const val = chatInput.value;
       for (const cmd of FILE_CMDS) {
@@ -1854,6 +1961,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
       updateSlashMenu();
       updateIntent();
+      // File chip extraction on comma
+      tryExtractFileChip();
       // File autocomplete
       const fp = getFilePrefix();
       if (fp && fp.length >= 2) {
@@ -1963,11 +2072,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     function sendMessage() {
       // Switch to chat screen on first message
       if (currentScreen === "home") showScreen("chat");
-      vscodeApi.postMessage({ type: "send", text: chatInput.value.trim() });
+      // Reconstruct command from file chips + remaining input text
+      let text = chatInput.value.trim();
+      if (fileChipsList.length > 0) {
+        const cmd = getActiveFileCommand();
+        if (cmd) {
+          const remaining = text.slice(cmd.length).trim();
+          // Combine chips and any remaining partial text
+          const allFiles = [...fileChipsList];
+          if (remaining && !remaining.startsWith("-")) allFiles.push(remaining);
+          text = cmd + " " + allFiles.join(",");
+        }
+      }
+      vscodeApi.postMessage({ type: "send", text: text });
       chatInput.value = "";
       chatInput.style.height = "auto";
       slashMenu.style.display = "none";
       intentBadge.style.display = "none";
+      clearFileChips();
     }
 
     function setStreaming(on) {
@@ -2069,12 +2191,63 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         const key = el.getAttribute("data-key");
         let val = el.value;
         if (el.type === "number") val = Number(val);
-        // For excludePatterns, convert comma-separated string to array
-        if (key === "archexa.excludePatterns") {
-          val = val.split(",").map(s => s.trim()).filter(Boolean);
-        }
         vscodeApi.postMessage({ type: "update", key, value: val });
       });
+    });
+
+    // ── Exclusion pattern chips ──
+    let excludeChipsList = [];
+    const excludeChipsEl = document.getElementById("excludeChips");
+    const excludeInput = document.getElementById("excludePatternsInput");
+
+    function addExcludeChip(pattern) {
+      pattern = pattern.trim();
+      if (!pattern || excludeChipsList.includes(pattern)) return;
+      excludeChipsList.push(pattern);
+      renderExcludeChips();
+      syncExcludePatterns();
+    }
+
+    function removeExcludeChip(pattern) {
+      excludeChipsList = excludeChipsList.filter(p => p !== pattern);
+      renderExcludeChips();
+      syncExcludePatterns();
+    }
+
+    function renderExcludeChips() {
+      excludeChipsEl.innerHTML = excludeChipsList.map(p =>
+        '<span class="file-chip exclude-chip" data-pattern="' + p.replace(/"/g, "&quot;") + '">' + p.replace(/</g, "&lt;") + ' <span class="chip-x" data-pattern="' + p.replace(/"/g, "&quot;") + '">\\u00D7</span></span>'
+      ).join("");
+      excludeChipsEl.querySelectorAll(".chip-x").forEach(x => {
+        x.addEventListener("click", (e) => {
+          e.stopPropagation();
+          removeExcludeChip(x.dataset.pattern);
+        });
+      });
+    }
+
+    function syncExcludePatterns() {
+      vscodeApi.postMessage({ type: "update", key: "archexa.excludePatterns", value: excludeChipsList.slice() });
+    }
+
+    document.getElementById("excludePatternsContainer").addEventListener("click", () => {
+      excludeInput.focus();
+    });
+
+    excludeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const val = excludeInput.value.trim();
+        if (val) {
+          // Support pasting comma-separated values
+          val.split(",").forEach(s => addExcludeChip(s));
+          excludeInput.value = "";
+        }
+      }
+      // Backspace on empty input removes last chip
+      if (e.key === "Backspace" && !excludeInput.value && excludeChipsList.length > 0) {
+        removeExcludeChip(excludeChipsList[excludeChipsList.length - 1]);
+      }
     });
 
     // API key show/hide
@@ -2190,9 +2363,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       if (c.deepMaxIterations != null) document.getElementById("deepMaxIterations").value = c.deepMaxIterations;
       if (c.logLevel) document.getElementById("logLevel").value = c.logLevel;
 
-      // Exclusion patterns — stored as array, displayed as comma-separated text
+      // Exclusion patterns — stored as array, displayed as chips
       if (Array.isArray(c.excludePatterns)) {
-        document.getElementById("excludePatterns").value = c.excludePatterns.join(", ");
+        excludeChipsList = c.excludePatterns.filter(Boolean);
+        renderExcludeChips();
       }
 
       // Custom prompts
@@ -2544,19 +2718,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           slashMenu.querySelectorAll(".slash-item").forEach(el => {
             el.addEventListener("click", () => {
               const fp = el.dataset.filepath;
-              const val = chatInput.value;
-              for (const cmd of FILE_CMDS) {
-                if (val.startsWith(cmd + " ")) {
-                  const rest = val.slice(cmd.length + 1);
-                  const lastComma = rest.lastIndexOf(",");
-                  if (lastComma >= 0) {
-                    // Multi-file: replace only the part after the last comma
-                    chatInput.value = cmd + " " + rest.slice(0, lastComma + 1) + fp;
-                  } else {
-                    chatInput.value = cmd + " " + fp;
-                  }
-                  break;
-                }
+              const cmd = getActiveFileCommand();
+              if (cmd) {
+                addFileChip(fp);
+                chatInput.value = cmd + " ";
               }
               slashMenu.style.display = "none";
               slashMenu.dataset.mode = "";
