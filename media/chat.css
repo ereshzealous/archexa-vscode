@@ -1107,6 +1107,77 @@ body {
   white-space: nowrap;
 }
 
+/* ── Slash menu groups ──────────────────────────────── */
+
+.slash-group-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  color: var(--vscode-descriptionForeground);
+  padding: 6px 12px 3px;
+  user-select: none;
+}
+
+.slash-menu-hints {
+  padding: 4px 12px 5px;
+  font-size: 9px;
+  color: var(--vscode-disabledForeground);
+  border-top: 1px solid var(--vscode-editorGroup-border);
+}
+
+.slash-menu-hints kbd {
+  background: var(--vscode-editor-lineHighlightBackground);
+  border: 1px solid var(--vscode-editorGroup-border);
+  border-radius: 2px;
+  padding: 0 3px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 8px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ── Command chip ──────────────────────────────────── */
+
+.cmd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--vscode-editor-lineHighlightBackground);
+  border: 1px solid var(--vscode-editorGroup-border);
+  color: var(--vscode-editor-foreground);
+  margin-bottom: 4px;
+}
+
+.cmd-chip-icon { display: flex; align-items: center; opacity: 0.8; }
+.cmd-chip-icon svg { width: 12px; height: 12px; }
+
+.cmd-chip-x {
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  font-size: 13px;
+  margin-left: 2px;
+}
+
+.cmd-chip-x:hover { color: var(--vscode-errorForeground); }
+
+/* Color variants */
+.cmd-chip[data-type="review"]   { border-color: rgba(56,139,253,0.3); }
+.cmd-chip[data-type="review"] .cmd-chip-icon svg { color: var(--vscode-textLink-foreground); }
+.cmd-chip[data-type="diagnose"] { border-color: rgba(248,81,73,0.3); }
+.cmd-chip[data-type="diagnose"] .cmd-chip-icon svg { color: var(--vscode-errorForeground); }
+.cmd-chip[data-type="impact"]   { border-color: rgba(188,140,255,0.3); }
+.cmd-chip[data-type="impact"] .cmd-chip-icon svg { color: var(--vscode-charts-purple, #bc8cff); }
+.cmd-chip[data-type="query"]    { border-color: rgba(56,139,253,0.3); }
+.cmd-chip[data-type="query"] .cmd-chip-icon svg { color: var(--vscode-textLink-foreground); }
+.cmd-chip[data-type="gist"]     { border-color: rgba(63,185,80,0.3); }
+.cmd-chip[data-type="gist"] .cmd-chip-icon svg { color: var(--vscode-terminal-ansiGreen); }
+.cmd-chip[data-type="analyze"]  { border-color: rgba(188,140,255,0.3); }
+.cmd-chip[data-type="analyze"] .cmd-chip-icon svg { color: var(--vscode-charts-purple, #bc8cff); }
+
 /* ── Input row ──────────────────────────────────────── */
 
 .input-row {

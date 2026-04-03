@@ -1740,6 +1740,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     <div class="context-strip" id="contextStrip"></div>
     <div id="intentBadge" style="display:none"></div>
     <div id="slashMenu" style="display:none" class="slash-menu"></div>
+    <div id="cmdChipArea" style="display:none"></div>
     <div id="fileChips" class="file-chips"></div>
     <div class="input-row">
       <textarea id="chatInput" rows="1" placeholder="Ask a follow-up or start new."></textarea>
@@ -1987,17 +1988,29 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     function updateSlashMenu() {
       const val = chatInput.value;
-      if (!val.startsWith("/") || val.includes(" ") || isStreaming) { slashMenu.style.display = "none"; return; }
+      if (!val.startsWith("/") || val.includes(" ") || isStreaming) { slashMenu.style.display = "none"; slashMenu.dataset.mode = ""; return; }
       const filter = val.toLowerCase();
       const matches = CMDS.filter(c => c.slash.startsWith(filter));
       if (!matches.length) { slashMenu.style.display = "none"; return; }
-      slashMenu.innerHTML = matches.map((c, i) =>
-        '<div class="slash-item' + (i === 0 ? ' active' : '') + '" data-cmd="' + c.slash + '">'
-        + '<span class="slash-icon">' + (ICONS[c.type] || "") + '</span>'
-        + '<span class="slash-cmd">' + c.slash + '</span>'
-        + (c.args ? ' <span class="slash-args">' + c.args + '</span>' : '')
-        + '<span class="slash-desc">' + c.desc + '</span></div>'
-      ).join("");
+      // Build grouped menu: INVESTIGATE then SUMMARISE
+      let html = "";
+      let lastGroup = "";
+      let idx = 0;
+      for (const c of matches) {
+        const grp = (c.type === "gist" || c.type === "analyze") ? "summarise" : "investigate";
+        if (grp !== lastGroup) {
+          lastGroup = grp;
+          html += '<div class="slash-group-label">' + grp.toUpperCase() + '</div>';
+        }
+        html += '<div class="slash-item' + (idx === 0 ? ' active' : '') + '" data-cmd="' + c.slash + '" data-type="' + c.type + '">'
+          + '<span class="slash-icon">' + (ICONS[c.type] || "") + '</span>'
+          + '<span class="slash-cmd">' + c.slash + '</span>'
+          + '<span class="slash-desc">' + c.desc + '</span></div>';
+        idx++;
+      }
+      html += '<div class="slash-menu-hints"><kbd>\\u2191\\u2193</kbd> navigate <kbd>Enter</kbd> select <kbd>Esc</kbd> dismiss</div>';
+      slashMenu.innerHTML = html;
+      slashMenu.dataset.mode = "slash";
       slashIdx = 0;
       slashMenu.style.display = "block";
       slashMenu.querySelectorAll(".slash-item").forEach(el => {
@@ -2022,10 +2035,47 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    let activeCmd = null; // currently selected command chip
+    const cmdChipArea = document.getElementById("cmdChipArea");
+
     function selectSlash(el) {
-      chatInput.value = el.dataset.cmd + " ";
+      const cmd = el.dataset.cmd;
+      const type = el.dataset.type || cmd.replace("/","");
+      activeCmd = cmd;
+      // Show command chip
+      cmdChipArea.innerHTML = '<span class="cmd-chip" data-type="' + type + '">'
+        + '<span class="cmd-chip-icon">' + (ICONS[type] || "") + '</span>'
+        + '<span>' + type.charAt(0).toUpperCase() + type.slice(1) + '</span>'
+        + '<span class="cmd-chip-x" id="cmdChipClose">\\u00D7</span></span>';
+      cmdChipArea.style.display = "block";
+      document.getElementById("cmdChipClose").addEventListener("click", clearCmdChip);
+      // Update input
+      chatInput.value = "";
+      chatInput.placeholder = getCmdPlaceholder(type);
       chatInput.focus();
       slashMenu.style.display = "none";
+      slashMenu.dataset.mode = "";
+    }
+
+    function clearCmdChip() {
+      activeCmd = null;
+      cmdChipArea.style.display = "none";
+      cmdChipArea.innerHTML = "";
+      chatInput.value = "";
+      chatInput.placeholder = 'Ask anything... (e.g. "why is login failing?")';
+      chatInput.focus();
+    }
+
+    function getCmdPlaceholder(type) {
+      switch(type) {
+        case "review": return "Type file names or press Enter for current file...";
+        case "diagnose": return "Paste error message or stack trace...";
+        case "impact": return "Type file names, then describe the change...";
+        case "query": return "Ask anything about your codebase...";
+        case "gist": return "Optional: focus area (e.g. public API) or press Send...";
+        case "analyze": return "Optional: focus area or press Send...";
+        default: return "Type your message...";
+      }
     }
 
     function highlightSlash(items) {
@@ -2047,10 +2097,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           }
           return;
         }
-        if (e.key === "Escape") { slashMenu.style.display = "none"; return; }
+        if (e.key === "Escape") { slashMenu.style.display = "none"; slashMenu.dataset.mode = ""; return; }
+      }
+      // Escape clears command chip
+      if (e.key === "Escape" && activeCmd) {
+        clearCmdChip(); return;
       }
       if (e.key === "Tab" && currentIntent) { e.preventDefault(); sendMessage(); return; }
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isStreaming && (chatInput.value.trim() || fileChipsList.length > 0)) sendMessage(); }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isStreaming && (chatInput.value.trim() || fileChipsList.length > 0 || activeCmd)) sendMessage(); }
     });
 
     sendBtn.addEventListener("click", () => { if (!isStreaming && (chatInput.value.trim() || fileChipsList.length > 0)) sendMessage(); });
@@ -2080,30 +2134,36 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     });
 
     function sendMessage() {
-      // Switch to chat screen on first message
       if (currentScreen === "home") showScreen("chat");
-      // Collect file chips from DOM (source of truth, not the JS array)
+      // Collect file chips
       const chipEls = fileChipsEl.querySelectorAll(".file-chip");
       const chipFiles = [];
       chipEls.forEach(function(el) { if (el.dataset && el.dataset.file) chipFiles.push(el.dataset.file); });
       let text = chatInput.value.trim();
-      if (chipFiles.length > 0) {
-        // Find which slash command is in the input
+      // If a command chip is active, prepend it
+      if (activeCmd) {
+        if (chipFiles.length > 0) {
+          text = activeCmd + " " + chipFiles.join(",");
+        } else if (text) {
+          text = activeCmd + " " + text;
+        } else {
+          text = activeCmd;
+        }
+      } else if (chipFiles.length > 0) {
         let cmd = "";
         for (const c of FILE_CMDS) {
           if (text.startsWith(c)) { cmd = c; break; }
         }
-        if (cmd) {
-          // ALL files come from chips — ignore anything else in input
-          text = cmd + " " + chipFiles.join(",");
-        }
+        if (cmd) text = cmd + " " + chipFiles.join(",");
       }
       vscodeApi.postMessage({ type: "send", text: text });
       chatInput.value = "";
       chatInput.style.height = "auto";
+      chatInput.placeholder = 'Ask anything... (e.g. "why is login failing?")';
       slashMenu.style.display = "none";
       intentBadge.style.display = "none";
       clearFileChips();
+      clearCmdChip();
     }
 
     function setStreaming(on) {
