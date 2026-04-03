@@ -2084,17 +2084,19 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     function sendMessage() {
       // Switch to chat screen on first message
       if (currentScreen === "home") showScreen("chat");
-      // Reconstruct command from file chips + remaining input text
+      // Collect file chips from DOM (source of truth, not the JS array)
+      const chipEls = fileChipsEl.querySelectorAll(".file-chip");
+      const chipFiles = [];
+      chipEls.forEach(function(el) { if (el.dataset && el.dataset.file) chipFiles.push(el.dataset.file); });
       let text = chatInput.value.trim();
-      if (fileChipsList.length > 0) {
-        // Collect all chip file values directly from DOM as source of truth
-        const chipEls = fileChipsEl.querySelectorAll(".file-chip");
-        const chipFiles = [];
-        chipEls.forEach(function(el) { if (el.dataset.file) chipFiles.push(el.dataset.file); });
-        // Determine the active FILE_CMD from input
-        const cmd = getActiveFileCommand();
-        if (cmd && chipFiles.length > 0) {
-          // Chips ARE the files — only use chip values, not the active editor file
+      if (chipFiles.length > 0) {
+        // Find which slash command is in the input
+        let cmd = "";
+        for (const c of FILE_CMDS) {
+          if (text.startsWith(c)) { cmd = c; break; }
+        }
+        if (cmd) {
+          // ALL files come from chips — ignore anything else in input
           text = cmd + " " + chipFiles.join(",");
         }
       }
@@ -2513,7 +2515,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "editorContext": {
           let html = "";
           if (msg.file) {
-            html += '<span style="color:var(--vscode-disabledForeground)">Active:</span> ';
+            html += '<span style="color:var(--vscode-disabledForeground)" title="Currently open file in the editor. Used as default target for /review and /impact if no files are specified.">Editor:</span> ';
             html += '<span style="color:var(--vscode-textLink-foreground);font-family:var(--vscode-editor-font-family)">' + msg.file + '</span>';
           }
           if (msg.selection) {
