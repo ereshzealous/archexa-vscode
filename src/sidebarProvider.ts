@@ -95,11 +95,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this.refresh();
   }
 
-  resolveWebviewView(view: vscode.WebviewView): void {
+  resolveWebviewView(
+    view: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken
+  ): void {
     this.view = view;
     view.webview.options = {
       enableScripts: true,
-      retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, "media")],
     };
 
@@ -114,6 +117,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     view.webview.onDidReceiveMessage(
       (msg: Record<string, unknown>) => void this.onMessage(msg)
     );
+
+    // Re-populate when the view becomes visible again (e.g. switching back from another plugin)
+    view.onDidChangeVisibility(() => {
+      if (view.visible) this.refresh();
+    });
 
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("archexa")) {
