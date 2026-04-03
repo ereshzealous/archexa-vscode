@@ -1178,6 +1178,132 @@ body {
 .cmd-chip[data-type="analyze"]  { border-color: rgba(188,140,255,0.3); }
 .cmd-chip[data-type="analyze"] .cmd-chip-icon svg { color: var(--vscode-charts-purple, #bc8cff); }
 
+/* ── Review form ────────────────────────────────────── */
+
+.rf-label {
+  font-size: 10.5px;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 5px;
+  font-weight: 600;
+}
+
+.rf-pills {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.rf-pill {
+  background: var(--vscode-editor-lineHighlightBackground);
+  border: 1px solid var(--vscode-editorGroup-border);
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 10.5px;
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  transition: all 0.12s;
+  user-select: none;
+}
+
+.rf-pill:hover {
+  border-color: var(--vscode-focusBorder);
+  color: var(--vscode-editor-foreground);
+}
+
+.rf-pill.selected {
+  background: rgba(56, 139, 253, 0.12);
+  border-color: var(--vscode-textLink-foreground);
+  color: var(--vscode-textLink-foreground);
+  font-weight: 600;
+}
+
+.rf-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-editorGroup-border));
+  border-radius: 5px;
+  color: var(--vscode-input-foreground);
+  font-size: 11px;
+  padding: 6px 9px;
+  outline: none;
+  font-family: var(--vscode-font-family);
+  transition: border-color 0.12s;
+  margin-bottom: 4px;
+}
+
+.rf-input:focus { border-color: var(--vscode-focusBorder); }
+.rf-input::placeholder { color: var(--vscode-input-placeholderForeground); }
+
+.rf-hint {
+  font-size: 9px;
+  color: var(--vscode-disabledForeground);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.rf-hint kbd, .rf-hints kbd {
+  background: var(--vscode-editor-lineHighlightBackground);
+  border: 1px solid var(--vscode-editorGroup-border);
+  border-radius: 2px;
+  padding: 0 3px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 8px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.rf-hint code {
+  background: var(--vscode-textCodeBlock-background);
+  padding: 0 3px;
+  border-radius: 2px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 9px;
+}
+
+.rf-ready {
+  background: rgba(63, 185, 80, 0.08);
+  border: 1px solid rgba(63, 185, 80, 0.2);
+  border-radius: 5px;
+  padding: 8px 10px;
+  font-size: 10.5px;
+  color: var(--vscode-terminal-ansiGreen);
+  margin-bottom: 8px;
+}
+
+.rf-focus-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.rf-focus-row .rf-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.rf-send-btn {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  border-radius: 5px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+
+.rf-send-btn:hover { background: var(--vscode-button-hoverBackground); }
+
+.rf-hints {
+  font-size: 9px;
+  color: var(--vscode-disabledForeground);
+  margin-top: 4px;
+}
+
 /* ── Input row ──────────────────────────────────────── */
 
 .input-row {

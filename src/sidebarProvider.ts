@@ -1741,14 +1741,44 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     <div id="intentBadge" style="display:none"></div>
     <div id="slashMenu" style="display:none" class="slash-menu"></div>
     <div id="cmdChipArea" style="display:none"></div>
-    <div id="fileChips" class="file-chips"></div>
-    <div class="input-row">
-      <textarea id="chatInput" rows="1" placeholder="Ask a follow-up or start new."></textarea>
-      <button id="sendBtn">Send</button>
-      <button id="cancelBtn">Cancel</button>
+
+    <!-- Review command form (Step 2) -->
+    <div id="reviewForm" style="display:none">
+      <div class="rf-label">What to review?</div>
+      <div class="rf-pills">
+        <span class="rf-pill selected" data-mode="files">Files</span>
+        <span class="rf-pill" data-mode="changed">Uncommitted changes</span>
+        <span class="rf-pill" data-mode="branch">Branch diff</span>
+      </div>
+      <div id="rfFilesSection">
+        <div id="rfFileChips" class="file-chips"></div>
+        <input type="text" id="rfFileInput" class="rf-input" placeholder="Add files... type a name and press Enter" autocomplete="off"/>
+        <div class="rf-hint">Press <kbd>Enter</kbd> after each filename <kbd>Tab</kbd> to autocomplete. All listed files become <code>--target</code> args</div>
+      </div>
+      <div id="rfChangedSection" style="display:none">
+        <div class="rf-ready">Ready to review uncommitted changes</div>
+      </div>
+      <div id="rfBranchSection" style="display:none">
+        <input type="text" id="rfBranchInput" class="rf-input" placeholder="Branch ref (e.g. origin/main..HEAD)"/>
+      </div>
+      <div class="rf-focus-row">
+        <input type="text" id="rfFocusInput" class="rf-input" placeholder="Optional: any specific focus (e.g. security, performance)"/>
+        <button class="rf-send-btn" id="rfSendBtn">Send</button>
+      </div>
+      <div class="rf-hints"><kbd>Enter</kbd> send <kbd>Esc</kbd> back to commands</div>
     </div>
-    <div class="input-hints">
-      <span><kbd>Enter</kbd> send <kbd>Shift+Enter</kbd> new line <kbd>/</kbd> commands</span>
+
+    <!-- Default input row -->
+    <div id="defaultInputRow">
+      <div id="fileChips" class="file-chips"></div>
+      <div class="input-row">
+        <textarea id="chatInput" rows="1" placeholder="Ask a follow-up or start new."></textarea>
+        <button id="sendBtn">Send</button>
+        <button id="cancelBtn">Cancel</button>
+      </div>
+      <div class="input-hints">
+        <span><kbd>Enter</kbd> send <kbd>Shift+Enter</kbd> new line <kbd>/</kbd> commands</span>
+      </div>
     </div>
   </div>
 
@@ -2037,6 +2067,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     let activeCmd = null; // currently selected command chip
     const cmdChipArea = document.getElementById("cmdChipArea");
 
+    const reviewForm = document.getElementById("reviewForm");
+    const defaultInputRow = document.getElementById("defaultInputRow");
+    let reviewMode = "files"; // "files" | "changed" | "branch"
+    let rfFileList = []; // file chips in review form
+
     function selectSlash(el) {
       const cmd = el.dataset.cmd;
       const type = el.dataset.type || cmd.replace("/","");
@@ -2048,21 +2083,131 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         + '<span class="cmd-chip-x" id="cmdChipClose">\\u00D7</span></span>';
       cmdChipArea.style.display = "block";
       document.getElementById("cmdChipClose").addEventListener("click", clearCmdChip);
-      // Update input
-      chatInput.value = "";
-      chatInput.placeholder = getCmdPlaceholder(type);
-      chatInput.focus();
       slashMenu.style.display = "none";
       slashMenu.dataset.mode = "";
+
+      // Show command-specific form
+      if (type === "review") {
+        defaultInputRow.style.display = "none";
+        reviewForm.style.display = "block";
+        reviewMode = "files";
+        rfFileList = [];
+        renderRfPills();
+        renderRfFileChips();
+        document.getElementById("rfFileInput").focus();
+      } else {
+        reviewForm.style.display = "none";
+        defaultInputRow.style.display = "block";
+        chatInput.value = "";
+        chatInput.placeholder = getCmdPlaceholder(type);
+        chatInput.focus();
+      }
     }
 
     function clearCmdChip() {
       activeCmd = null;
       cmdChipArea.style.display = "none";
       cmdChipArea.innerHTML = "";
+      reviewForm.style.display = "none";
+      defaultInputRow.style.display = "block";
+      rfFileList = [];
       chatInput.value = "";
       chatInput.placeholder = 'Ask anything... (e.g. "why is login failing?")';
       chatInput.focus();
+    }
+
+    // ── Review form: pills ──
+    function renderRfPills() {
+      document.querySelectorAll(".rf-pill").forEach(p => {
+        p.classList.toggle("selected", p.dataset.mode === reviewMode);
+      });
+      document.getElementById("rfFilesSection").style.display = reviewMode === "files" ? "block" : "none";
+      document.getElementById("rfChangedSection").style.display = reviewMode === "changed" ? "block" : "none";
+      document.getElementById("rfBranchSection").style.display = reviewMode === "branch" ? "block" : "none";
+    }
+
+    document.querySelectorAll(".rf-pill").forEach(pill => {
+      pill.addEventListener("click", () => {
+        reviewMode = pill.dataset.mode;
+        renderRfPills();
+        if (reviewMode === "files") document.getElementById("rfFileInput").focus();
+        if (reviewMode === "branch") document.getElementById("rfBranchInput").focus();
+      });
+    });
+
+    // ── Review form: file chips ──
+    function renderRfFileChips() {
+      const container = document.getElementById("rfFileChips");
+      container.innerHTML = rfFileList.map(f =>
+        '<span class="file-chip" data-file="' + f + '">' + f.split("/").pop() + ' <span class="chip-x" data-file="' + f + '">\\u00D7</span></span>'
+      ).join("");
+      container.querySelectorAll(".chip-x").forEach(x => {
+        x.addEventListener("click", () => {
+          rfFileList = rfFileList.filter(ff => ff !== x.dataset.file);
+          renderRfFileChips();
+        });
+      });
+    }
+
+    // File input: Enter to add chip, Tab for autocomplete
+    document.getElementById("rfFileInput").addEventListener("keydown", function(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const val = this.value.trim();
+        if (val && !rfFileList.includes(val)) {
+          rfFileList.push(val);
+          renderRfFileChips();
+        }
+        this.value = "";
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const val = this.value.trim();
+        if (val.length >= 2) requestFileComplete(val);
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        clearCmdChip();
+      }
+    });
+
+    // Also trigger autocomplete on input
+    document.getElementById("rfFileInput").addEventListener("input", function() {
+      const val = this.value.trim();
+      if (val.length >= 2) requestFileComplete(val);
+      else { slashMenu.style.display = "none"; slashMenu.dataset.mode = ""; }
+    });
+
+    // Branch input: Escape to go back
+    document.getElementById("rfBranchInput").addEventListener("keydown", function(e) {
+      if (e.key === "Escape") { e.preventDefault(); clearCmdChip(); }
+      if (e.key === "Enter") { e.preventDefault(); sendReviewForm(); }
+    });
+
+    // Focus input: Enter to send
+    document.getElementById("rfFocusInput").addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { e.preventDefault(); sendReviewForm(); }
+      if (e.key === "Escape") { e.preventDefault(); clearCmdChip(); }
+    });
+
+    // Review Send button
+    document.getElementById("rfSendBtn").addEventListener("click", sendReviewForm);
+
+    function sendReviewForm() {
+      if (currentScreen === "home") showScreen("chat");
+      let text = "/review";
+      if (reviewMode === "files" && rfFileList.length > 0) {
+        text += " " + rfFileList.join(",");
+      } else if (reviewMode === "changed") {
+        text += " --changed";
+      } else if (reviewMode === "branch") {
+        const ref = document.getElementById("rfBranchInput").value.trim();
+        if (ref) text += " --branch " + ref;
+      }
+      const focus = document.getElementById("rfFocusInput").value.trim();
+      if (focus) text += " --focus " + focus;
+      vscodeApi.postMessage({ type: "send", text: text });
+      clearCmdChip();
     }
 
     function getCmdPlaceholder(type) {
@@ -2803,14 +2948,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           slashMenu.querySelectorAll(".slash-item").forEach(el => {
             el.addEventListener("click", () => {
               const fp = el.dataset.filepath;
-              const cmd = getActiveFileCommand();
-              if (cmd) {
-                addFileChip(fp);
-                chatInput.value = cmd + " ";
+              // Add to review form if active, otherwise to default file chips
+              if (activeCmd === "/review" && reviewForm.style.display !== "none") {
+                if (!rfFileList.includes(fp)) { rfFileList.push(fp); renderRfFileChips(); }
+                document.getElementById("rfFileInput").value = "";
+                document.getElementById("rfFileInput").focus();
+              } else {
+                const cmd = getActiveFileCommand();
+                if (cmd) { addFileChip(fp); chatInput.value = cmd + " "; }
+                chatInput.focus();
               }
               slashMenu.style.display = "none";
               slashMenu.dataset.mode = "";
-              chatInput.focus();
             });
           });
           break;
