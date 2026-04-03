@@ -1319,6 +1319,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
        SCREEN: CHAT (messages + streaming)
        ═══════════════════════════════════════════════════════ -->
   <div id="screen-chat" class="screen">
+    <div class="chat-nav">
+      <button class="chat-nav-btn" id="chatHomeBtn">\u2190 Home</button>
+      <span class="chat-nav-spacer"></span>
+      <button class="chat-nav-btn" id="chatNewBtn">+ New</button>
+    </div>
     <div class="chat-messages" id="messages"></div>
   </div>
 
@@ -1985,6 +1990,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     document.getElementById("btnTestConn").addEventListener("click", () => vscodeApi.postMessage({ type: "testConnection" }));
     document.getElementById("settingsBackBtn").addEventListener("click", () => {
       vscodeApi.postMessage({ type: "goBack" });
+    });
+
+    // Chat nav buttons
+    document.getElementById("chatHomeBtn").addEventListener("click", () => {
+      showScreen("home");
+    });
+    document.getElementById("chatNewBtn").addEventListener("click", () => {
+      document.getElementById("messages").innerHTML = "";
+      showScreen("home");
     });
 
     // Tab switching
