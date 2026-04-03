@@ -134,6 +134,12 @@
         "command": "archexa.reopenResult",
         "title": "Reopen Result",
         "category": "Archexa"
+      },
+      {
+        "command": "archexa.openChat",
+        "title": "Open Chat",
+        "category": "Archexa",
+        "icon": "$(comment-discussion)"
       }
     ],
     "submenus": [

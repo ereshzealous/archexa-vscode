@@ -6,18 +6,6 @@ import * as path from "path";
 import { generateConfigYaml } from "./utils/config.js";
 import { getNonce } from "./utils/platform.js";
 
-const SECTIONS = [
-  { id: "binary", icon: "◈", label: "Binary" },
-  { id: "connection", icon: "◎", label: "Connection" },
-  { id: "agent", icon: "◉", label: "Agent" },
-  { id: "scanning", icon: "◈", label: "Scanning" },
-  { id: "cache", icon: "◆", label: "Cache" },
-  { id: "prompts", icon: "▤", label: "Prompts" },
-  { id: "output", icon: "▣", label: "Output" },
-  { id: "review", icon: "◍", label: "Review" },
-  { id: "advanced", icon: "⟐", label: "Advanced" },
-];
-
 export class SettingsWebview {
   private panel: vscode.WebviewPanel | undefined;
   private syncTimer: ReturnType<typeof setTimeout> | undefined;
@@ -279,12 +267,8 @@ export class SettingsWebview {
     });
   }
 
-  private getHtml(cssUri: vscode.Uri, nonce?: string): string {
+  private getHtml(_cssUri: vscode.Uri, nonce?: string): string {
     const n = nonce ?? getNonce();
-    const navItems = SECTIONS.map(
-      (s) =>
-        `<div class="nav-item${s.id === "binary" ? " active" : ""}" data-section="${s.id}">${s.icon} ${s.label}</div>`
-    ).join("\n      ");
 
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
@@ -293,400 +277,639 @@ export class SettingsWebview {
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none'; style-src ${this.panel!.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${n}'; img-src ${this.panel!.webview.cspSource} data:;" />
-  <link href="${cssUri}" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--vscode-editor-background);
+      color: var(--vscode-editor-foreground);
+      font-family: var(--vscode-font-family);
+      font-size: 12px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Top bar ── */
+    .top-bar {
+      background: var(--vscode-sideBar-background);
+      border-bottom: 1px solid var(--vscode-editorGroup-border);
+      padding: 0 14px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .top-bar .back-btn {
+      background: none;
+      border: none;
+      color: var(--vscode-descriptionForeground);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 0;
+    }
+    .top-bar .back-btn:hover { color: var(--vscode-editor-foreground); }
+    .top-bar .sep { color: var(--vscode-disabledForeground); }
+    .top-bar .title { color: var(--vscode-editor-foreground); font-size: 12.5px; font-weight: 600; }
+    .top-bar .spacer { flex: 1; }
+    .top-bar .version-badge {
+      color: var(--vscode-terminal-ansiGreen, #3fb950);
+      font-size: 10px;
+      background: rgba(63,185,80,.1);
+      border: 1px solid rgba(63,185,80,.2);
+      border-radius: 10px;
+      padding: 0 7px;
+      line-height: 18px;
+    }
+    .top-bar .yaml-btn {
+      background: var(--vscode-button-secondaryBackground);
+      color: var(--vscode-button-secondaryForeground);
+      border: none;
+      border-radius: 5px;
+      padding: 4px 12px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .top-bar .yaml-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+    .top-bar .save-btn {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border: none;
+      border-radius: 5px;
+      padding: 4px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      min-width: 58px;
+      transition: background .2s;
+    }
+    .top-bar .save-btn:hover { background: var(--vscode-button-hoverBackground); }
+    .top-bar .save-btn.saved { background: var(--vscode-terminal-ansiGreen, #3fb950); }
+
+    /* ── Content scroll area ── */
+    .content-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      gap: 0;
+    }
+    .content-main { flex: 1; min-width: 0; }
+
+    /* ── Section label ── */
+    .section-label {
+      color: var(--vscode-descriptionForeground);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 9px;
+    }
+
+    /* ── Fields ── */
+    .field { margin-bottom: 10px; }
+    .field-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .field-label { color: var(--vscode-editor-foreground); font-size: 12px; }
+    .field-required { color: var(--vscode-errorForeground); font-size: 10px; }
+    .field-hint {
+      color: var(--vscode-descriptionForeground);
+      font-size: 10.5px;
+      margin-top: 3px;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="number"] {
+      width: 100%;
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border: 1px solid var(--vscode-input-border, var(--vscode-editorGroup-border));
+      border-radius: 5px;
+      padding: 7px 9px;
+      font-family: var(--vscode-editor-font-family);
+      font-size: 11.5px;
+      outline: none;
+      transition: border-color .12s;
+    }
+    input:focus, textarea:focus { border-color: var(--vscode-focusBorder); }
+    input::placeholder, textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
+    input.has-value { border-color: var(--vscode-textLink-foreground); }
+
+    .input-row {
+      display: flex;
+      gap: 6px;
+    }
+    .input-row input { flex: 1; }
+
+    .show-hide-btn {
+      background: var(--vscode-sideBar-background);
+      border: 1px solid var(--vscode-editorGroup-border);
+      color: var(--vscode-descriptionForeground);
+      border-radius: 5px;
+      padding: 7px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .show-hide-btn:hover { color: var(--vscode-editor-foreground); }
+
+    /* ── Preset chips ── */
+    .chip-row {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      margin-bottom: 5px;
+    }
+    .chip {
+      background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-editorGroup-border);
+      color: var(--vscode-descriptionForeground);
+      border-radius: 4px;
+      padding: 3px 9px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all .12s;
+      user-select: none;
+    }
+    .chip:hover {
+      border-color: var(--vscode-textLink-foreground);
+      color: var(--vscode-textLink-foreground);
+    }
+    .chip.active {
+      background: rgba(56,139,253,.13);
+      border-color: var(--vscode-textLink-foreground);
+      color: var(--vscode-textLink-foreground);
+    }
+    .chip-model {
+      font-family: var(--vscode-editor-font-family);
+      font-size: 10.5px;
+    }
+
+    /* ── Test connection ── */
+    .btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .btn-primary {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border: none;
+      border-radius: 5px;
+      padding: 5px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-primary:hover { background: var(--vscode-button-hoverBackground); }
+    .btn-secondary {
+      background: var(--vscode-sideBar-background);
+      border: 1px solid var(--vscode-editorGroup-border);
+      color: var(--vscode-descriptionForeground);
+      border-radius: 4px;
+      padding: 3px 9px;
+      font-size: 10.5px;
+      cursor: pointer;
+    }
+    .btn-secondary:hover { background: var(--vscode-list-hoverBackground); }
+
+    #connStatus {
+      margin-top: 8px;
+      font-size: 11px;
+      padding: 8px 12px;
+      border-radius: 5px;
+      display: none;
+    }
+
+    /* ── Accordion ── */
+    .accordion {
+      border: 1px solid var(--vscode-editorGroup-border);
+      border-radius: 7px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .accordion-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 13px;
+      cursor: pointer;
+      background: var(--vscode-sideBar-background);
+      user-select: none;
+      transition: background .1s;
+    }
+    .accordion-header:hover { background: var(--vscode-list-hoverBackground); }
+    .accordion-header.open { background: var(--vscode-sideBar-background); }
+    .accordion-icon { font-size: 14px; flex-shrink: 0; }
+    .accordion-title { color: var(--vscode-editor-foreground); font-size: 12.5px; font-weight: 600; flex: 1; }
+    .accordion-arrow {
+      color: var(--vscode-disabledForeground);
+      font-size: 11px;
+      font-family: var(--vscode-editor-font-family);
+    }
+    .accordion-body {
+      padding: 10px 13px;
+      background: var(--vscode-editor-background);
+      display: none;
+    }
+    .accordion-body.open { display: block; }
+
+    /* ── Toggle switch (matching mock) ── */
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(48,54,61,.1);
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-info { padding-right: 16px; }
+    .toggle-label { color: var(--vscode-editor-foreground); font-size: 12px; }
+    .toggle-hint { color: var(--vscode-descriptionForeground); font-size: 10.5px; margin-top: 2px; line-height: 1.4; }
+    .toggle-track {
+      width: 32px;
+      height: 17px;
+      border-radius: 9px;
+      background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-editorGroup-border);
+      cursor: pointer;
+      position: relative;
+      transition: all .18s;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .toggle-track.on {
+      background: var(--vscode-textLink-foreground);
+      border-color: var(--vscode-textLink-foreground);
+    }
+    .toggle-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--vscode-descriptionForeground);
+      transition: left .18s;
+    }
+    .toggle-track.on .toggle-thumb {
+      left: 17px;
+      background: #fff;
+    }
+
+    /* ── Prompt textareas ── */
+    .prompt-field { margin-bottom: 9px; }
+    .prompt-label { color: var(--vscode-editor-foreground); font-size: 11.5px; margin-bottom: 3px; }
+    textarea.prompt-area {
+      width: 100%;
+      background: var(--vscode-editor-background);
+      border: 1px solid var(--vscode-editorGroup-border);
+      border-radius: 4px;
+      color: var(--vscode-terminal-ansiGreen, #3fb950);
+      font-size: 11px;
+      padding: 5px 9px;
+      outline: none;
+      font-family: var(--vscode-editor-font-family);
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    /* ── Warning box ── */
+    .warning-box {
+      color: var(--vscode-editorWarning-foreground, #d29922);
+      font-size: 10.5px;
+      background: rgba(210,153,34,.06);
+      border: 1px solid rgba(210,153,34,.16);
+      border-radius: 4px;
+      padding: 5px 9px;
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+
+    /* ── Advanced number rows ── */
+    .number-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(48,54,61,.1);
+    }
+    .number-row:last-of-type { border-bottom: none; }
+    .number-row label { color: var(--vscode-editor-foreground); font-size: 11.5px; }
+    .number-row input[type="number"] {
+      width: 88px;
+      text-align: right;
+      padding: 3px 7px;
+      font-size: 11px;
+    }
+
+    /* ── Binary path ── */
+    .bin-path {
+      color: var(--vscode-terminal-ansiGreen, #3fb950);
+      font-size: 10px;
+      font-family: var(--vscode-editor-font-family);
+      opacity: .7;
+      word-break: break-all;
+      margin-bottom: 6px;
+    }
+
+    /* ── Tag inputs ── */
+    .tag-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+      background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-input-border, var(--vscode-editorGroup-border));
+      border-radius: 5px;
+      padding: 4px 6px;
+      min-height: 32px;
+    }
+    .tag-container:focus-within { border-color: var(--vscode-focusBorder); }
+    .tag {
+      background: var(--vscode-badge-background);
+      color: var(--vscode-badge-foreground);
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-size: 10.5px;
+      font-family: var(--vscode-editor-font-family);
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .tag-remove {
+      cursor: pointer;
+      opacity: .6;
+      font-size: 11px;
+    }
+    .tag-remove:hover { opacity: 1; }
+    .tag-input {
+      border: none !important;
+      background: transparent !important;
+      outline: none !important;
+      font-size: 11px;
+      color: var(--vscode-input-foreground);
+      flex: 1;
+      min-width: 80px;
+      padding: 2px 4px !important;
+    }
+
+    /* ── YAML panel ── */
+    .yaml-panel {
+      width: 320px;
+      background: var(--vscode-textCodeBlock-background);
+      border-left: 1px solid var(--vscode-editorGroup-border);
+      padding: 12px;
+      overflow-y: auto;
+      flex-shrink: 0;
+      display: none;
+    }
+    .yaml-panel.visible { display: block; }
+    .yaml-title {
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      margin-bottom: 8px;
+    }
+    .yaml-panel pre {
+      font-family: var(--vscode-editor-font-family);
+      font-size: 10.5px;
+      white-space: pre-wrap;
+      color: var(--vscode-terminal-ansiGreen, #3fb950);
+      line-height: 1.6;
+    }
+
+    /* ── Save toast ── */
+    .save-toast {
+      display: none;
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      background: var(--vscode-terminal-ansiGreen, #3fb950);
+      color: #000;
+      padding: 6px 16px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      z-index: 100;
+    }
+
+    /* ── Prompt indicators ── */
+    .prompt-indicator {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+    .prompt-indicator.unset { background: var(--vscode-editorGroup-border); }
+    .prompt-indicator.set { background: var(--vscode-terminal-ansiGreen, #3fb950); }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground); }
+  </style>
 </head>
 <body>
+
+  <!-- Top bar -->
   <div class="top-bar">
-    <span class="title">Archexa Settings</span>
-    <span class="section-label" id="topSectionLabel">Binary</span>
+    <button class="back-btn" id="backBtn">\u2190 Back</button>
+    <span class="sep">\u00B7</span>
+    <span class="title">Settings</span>
     <span class="spacer"></span>
-    <button class="top-btn" id="yamlToggle">YAML ▶</button>
-    <button class="top-btn save-btn" id="saveBtn">Save</button>
+    <span class="version-badge" id="versionBadge">\u25CF v...</span>
+    <button class="yaml-btn" id="yamlToggle">YAML</button>
+    <button class="save-btn" id="saveBtn">Save</button>
   </div>
 
-  <div class="main-layout">
-    <div class="nav">
-      ${navItems}
-    </div>
+  <div class="content-scroll">
+    <div class="content-main">
 
-    <div class="content-area">
-      <!-- BINARY -->
-      <div class="section active" id="sec-binary">
-        <h2>Binary</h2>
+      <!-- ═══ CONNECT — always visible ═══ -->
+      <div style="margin-bottom:14px">
+        <div class="section-label">Connect</div>
+
+        <!-- API Key -->
         <div class="field">
-          <label class="field-label">Active binary path</label>
-          <div class="copy-box">
-            <span class="copy-text" id="binPath">...</span>
-            <button class="copy-btn" id="copyBinPath">Copy</button>
+          <div class="field-row">
+            <span class="field-label">API Key</span>
+            <span class="field-required">required</span>
           </div>
+          <div class="input-row">
+            <input type="password" id="apiKey" data-key="archexa.apiKey" placeholder="sk-... or set OPENAI_API_KEY env var"/>
+            <button class="show-hide-btn" id="toggleApiKey">Show</button>
+          </div>
+          <div class="field-hint">Leave empty to use OPENAI_API_KEY environment variable</div>
         </div>
+
+        <!-- Endpoint -->
         <div class="field">
-          <label class="field-label">Version</label>
-          <div id="binVersion" style="font-family:var(--vscode-editor-font-family)">...</div>
+          <div class="field-label" style="margin-bottom:5px">Endpoint</div>
+          <div class="chip-row" id="endpointChips">
+            <div class="chip" data-url="https://api.openai.com/v1/">OpenAI</div>
+            <div class="chip" data-url="https://openrouter.ai/api/v1/">OpenRouter</div>
+            <div class="chip" data-url="http://localhost:11434/v1/">Ollama</div>
+            <div class="chip" data-url="http://localhost:8000/v1/">vLLM</div>
+          </div>
+          <input type="text" id="endpoint" data-key="archexa.endpoint" placeholder="https://api.openai.com/v1/" style="font-size:11px"/>
         </div>
+
+        <!-- Model -->
+        <div class="field">
+          <div class="field-label" style="margin-bottom:5px">Model</div>
+          <div class="chip-row" id="modelChips">
+            <div class="chip chip-model" data-model="gpt-4o">gpt-4o</div>
+            <div class="chip chip-model" data-model="gpt-4o-mini">gpt-4o-mini</div>
+            <div class="chip chip-model" data-model="claude-sonnet-4-20250514">claude-sonnet-4-20250514</div>
+            <div class="chip chip-model" data-model="llama3.1">llama3.1</div>
+          </div>
+          <input type="text" id="model" data-key="archexa.model" placeholder="gpt-4o" style="font-size:11px"/>
+        </div>
+
+        <!-- Test connection -->
         <div class="btn-row">
-          <button class="btn-secondary" id="btnVerify">↻ Verify binary</button>
-          <button class="btn-secondary" id="btnCheckUpdate">☁ Check for update</button>
-          <button class="btn-secondary" id="btnRedownload">⬇ Re-download</button>
-          <button class="btn-secondary" id="btnOpenBin">Open bin folder</button>
+          <button class="btn-primary" id="btnTestConn">\u25B6 Test Connection</button>
         </div>
-        <div class="info-box">
-          <strong>How binary management works</strong><br/>
-          • Binary is a PyInstaller single-file executable from GitHub Releases<br/>
-          • No Python or pip required — fully self-contained<br/>
-          • Updates are checked silently on each activation<br/>
-          • Binary is stored in the extension's global storage directory
-        </div>
-        <table class="bundle-table">
-          <thead><tr><th>Platform</th><th>Asset</th><th>Python?</th></tr></thead>
-          <tbody>
-            <tr><td>macOS (Apple Silicon)</td><td>archexa-macos-arm64</td><td>No ✓</td></tr>
-            <tr><td>macOS (Intel)</td><td>archexa-macos-x86_64</td><td>No ✓</td></tr>
-            <tr><td>Linux (x86_64)</td><td>archexa-linux-x86_64</td><td>No ✓</td></tr>
-            <tr><td>Linux (ARM64)</td><td>archexa-linux-arm64</td><td>No ✓</td></tr>
-            <tr><td>Windows (x64)</td><td>archexa-windows-x86_64.exe</td><td>No ✓</td></tr>
-          </tbody>
-        </table>
+        <div id="connStatus"></div>
       </div>
 
-      <!-- CONNECTION -->
-      <div class="section" id="sec-connection">
-        <h2>Connection</h2>
-        <div class="field">
-          <label class="field-label">API Key</label>
-          <div style="display:flex;gap:6px;align-items:center;max-width:400px">
-            <input type="password" id="apiKey" data-key="archexa.apiKey" placeholder="sk-..." style="flex:1"/>
-            <button class="btn-secondary" id="toggleApiKey" style="white-space:nowrap">Show</button>
+      <!-- ═══ BEHAVIOUR accordion ═══ -->
+      <div class="accordion">
+        <div class="accordion-header" data-accordion="behaviour">
+          <span class="accordion-icon">\u2699\uFE0F</span>
+          <span class="accordion-title">Behaviour</span>
+          <span class="accordion-arrow">\u25B8</span>
+        </div>
+        <div class="accordion-body" id="acc-behaviour">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Deep mode by default</div>
+              <div class="toggle-hint">Agent reads files and traces calls. More accurate, slower.</div>
+            </div>
+            <div class="toggle-track on" data-key="archexa.deepByDefault" id="deepToggle">
+              <div class="toggle-thumb"></div>
+            </div>
           </div>
-          <div class="field-hint">Leave empty to use OPENAI_API_KEY env var</div>
-        </div>
-        <div class="info-box">
-          Archexa uses the <strong>OpenAI-compatible API</strong> format. Any provider that
-          implements the <code>/v1/chat/completions</code> endpoint works: OpenAI, OpenRouter,
-          Azure, Anthropic (via proxy), Ollama, vLLM, LiteLLM, etc.
-        </div>
-        <div class="field">
-          <label class="field-label">Base URL</label>
-          <input type="text" id="endpoint" data-key="archexa.endpoint" placeholder="https://api.openai.com/v1/" style="max-width:500px"/>
-          <div class="field-hint">The /v1/ endpoint of your provider. Examples: https://api.openai.com/v1/ · https://openrouter.ai/api/v1/ · http://localhost:11434/v1/</div>
-        </div>
-        <div class="field">
-          <label class="field-label">Model</label>
-          <input type="text" id="model" data-key="archexa.model" placeholder="gpt-4o" style="max-width:500px"/>
-          <div class="field-hint">Any model string your provider accepts. Examples: gpt-4o · google/gemini-2.0-flash-001 · anthropic/claude-sonnet-4-20250514 · llama3.1</div>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-track on" data-key="archexa.tlsVerify" id="tlsToggle">
-            <div class="toggle-thumb"></div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Show findings as squiggles</div>
+              <div class="toggle-hint">Review findings appear in the editor and Problems panel.</div>
+            </div>
+            <div class="toggle-track on" data-key="archexa.showInlineFindings" id="squigglesToggle">
+              <div class="toggle-thumb"></div>
+            </div>
           </div>
-          <span class="toggle-label">TLS Verify</span>
-          <span style="font-size:0.78em;color:var(--vscode-descriptionForeground);margin-left:6px">Disable for local endpoints with self-signed certs</span>
-        </div>
-        <div class="btn-row">
-          <button class="btn-primary" id="btnTestConn">▶ Test Connection</button>
-        </div>
-        <div id="connStatus" style="margin-top:8px;font-size:0.88em;padding:8px 12px;border-radius:4px;display:none"></div>
-      </div>
-
-      <!-- AGENT -->
-      <div class="section" id="sec-agent">
-        <h2>Agent &amp; Deep Mode</h2>
-        <div class="info-box">
-          <strong>Deep mode</strong> = the LLM reads files, greps code, traces callers, and iterates
-          before generating its answer. Like a senior engineer exploring the codebase themselves.<br/><br/>
-          <strong>Without deep mode</strong> (pipeline), Archexa extracts evidence using AST parsing only —
-          faster but less thorough. Deep mode uses 3-10x more tokens but finds cross-file issues
-          that pipeline mode misses.
-        </div>
-        <div class="info-box">
-          <strong>Per-command deep mode behavior</strong><br/>
-          <table style="width:100%;font-size:0.85em;margin-top:6px;border-collapse:collapse">
-            <tr style="border-bottom:1px solid var(--vscode-editorGroup-border)">
-              <td style="padding:3px 6px"><strong>Diagnose</strong></td>
-              <td style="padding:3px 6px">Always deep</td>
-              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Root-cause requires tracing call chains</td>
-            </tr>
-            <tr style="border-bottom:1px solid var(--vscode-editorGroup-border)">
-              <td style="padding:3px 6px"><strong>Review</strong></td>
-              <td style="padding:3px 6px">Uses this setting</td>
-              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Deep mode traces callers across files; pipeline is faster for focused reviews</td>
-            </tr>
-            <tr style="border-bottom:1px solid var(--vscode-editorGroup-border)">
-              <td style="padding:3px 6px"><strong>Impact</strong></td>
-              <td style="padding:3px 6px">Uses this setting</td>
-              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Deep mode traces callers and consumers across boundaries</td>
-            </tr>
-            <tr style="border-bottom:1px solid var(--vscode-editorGroup-border)">
-              <td style="padding:3px 6px"><strong>Query</strong></td>
-              <td style="padding:3px 6px">Uses this setting</td>
-              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Not every question needs deep investigation</td>
-            </tr>
-            <tr style="border-bottom:1px solid var(--vscode-editorGroup-border)">
-              <td style="padding:3px 6px"><strong>Gist</strong></td>
-              <td style="padding:3px 6px">Uses this setting</td>
-              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Overview works well with pipeline extraction</td>
-            </tr>
-            <tr>
-              <td style="padding:3px 6px"><strong>Analyze</strong></td>
-              <td style="padding:3px 6px">Uses this setting</td>
-              <td style="padding:3px 6px;color:var(--vscode-descriptionForeground)">Full architecture uses evidence extraction pipeline</td>
-            </tr>
-          </table>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-track on" data-key="archexa.deepByDefault" id="deepToggle">
-            <div class="toggle-thumb"></div>
-          </div>
-          <span class="toggle-label">Deep mode by default</span>
-          <span style="font-size:0.78em;color:var(--vscode-descriptionForeground);margin-left:6px">Applies to all commands except Diagnose (always deep)</span>
-        </div>
-        <div class="field">
-          <label class="field-label">Max iterations</label>
-          <div class="range-row">
-            <input type="range" min="3" max="30" value="15" id="deepMaxIterations" data-key="archexa.deepMaxIterations"/>
-            <span class="range-value" id="deepMaxIterationsVal">15</span>
-          </div>
-          <div class="field-hint">How many tool-calling rounds the agent can perform. Higher = more thorough but slower.
-            3-5 for quick checks, 10-15 for thorough analysis, 20-30 for complex cross-file investigations.</div>
-        </div>
-        <div class="field">
-          <label class="field-label">Enabled tools</label>
-          <div class="checkbox-group">
-            <label class="checkbox-item"><input type="checkbox" checked data-tool="read_file"/> read_file</label>
-            <label class="checkbox-item"><input type="checkbox" checked data-tool="grep_codebase"/> grep_codebase</label>
-            <label class="checkbox-item"><input type="checkbox" checked data-tool="list_directory"/> list_directory</label>
-            <label class="checkbox-item"><input type="checkbox" checked data-tool="find_references"/> find_references</label>
-            <label class="checkbox-item"><input type="checkbox" checked data-tool="git_log"/> git_log</label>
-            <label class="checkbox-item"><input type="checkbox" checked data-tool="get_imports"/> get_imports</label>
-          </div>
-          <div class="field-hint">Tools the agent can use during investigation. Disabling tools limits what the agent can discover but reduces token usage.</div>
-        </div>
-      </div>
-
-      <!-- CACHE -->
-      <!-- SCANNING -->
-      <div class="section" id="sec-scanning">
-        <h2>Scanning</h2>
-        <div class="info-box">
-          Controls which files Archexa indexes and analyzes. All commands respect these settings.
-          The configured output directory is always excluded automatically.
-        </div>
-        <div class="field">
-          <label class="field-label">Scan focus (directories)</label>
-          <div class="tag-container" id="scanFocusTags">
-            <input type="text" class="tag-input" id="scanFocusInput" placeholder="e.g. src/api/ — press Enter to add"/>
-          </div>
-          <div class="field-hint">Limit scanning to these directory prefixes. Leave empty to scan the full repo. Useful for large monorepos — only scan the parts you care about.</div>
-        </div>
-        <div class="field">
-          <label class="field-label">Exclusion patterns</label>
-          <div class="tag-container" id="excludeTags">
-            <input type="text" class="tag-input" id="excludeInput" placeholder="e.g. *.test.ts — press Enter to add"/>
-          </div>
-          <div class="field-hint">
-            Glob patterns for files to skip during scanning. Archexa already excludes
-            <code>node_modules</code>, <code>.git</code>, <code>__pycache__</code>, and binary files by default.<br/>
-            <strong>Examples:</strong>
-            <code>*.test.ts</code> · <code>*.spec.js</code> · <code>*_test.go</code> ·
-            <code>vendor/**</code> · <code>dist/**</code> · <code>*.generated.*</code> ·
-            <code>migrations/**</code> · <code>*.pb.go</code>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Auto-review on save</div>
+              <div class="toggle-hint">Runs a quick review every time you save a supported file.</div>
+            </div>
+            <div class="toggle-track" data-key="archexa.autoReviewOnSave" id="autoReviewToggle">
+              <div class="toggle-thumb"></div>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- CACHE -->
-      <div class="section" id="sec-cache">
-        <h2>Cache</h2>
-        <div class="info-box">
-          <strong>How caching works</strong><br/>
-          Archexa caches per-file evidence extraction (AST parsing, pattern matching, import graphs).
-          On subsequent runs, unchanged files are served from cache — making scans <strong>2-5x faster</strong>.<br/><br/>
-          <strong>When to disable:</strong> If you're debugging extraction issues or just made major structural changes
-          to many files. Use <code>--fresh</code> via CLI for a one-time bypass.
+      <!-- ═══ CUSTOM PROMPTS accordion ═══ -->
+      <div class="accordion">
+        <div class="accordion-header" data-accordion="prompts">
+          <span class="accordion-icon">\u270F\uFE0F</span>
+          <span class="accordion-title">Custom Prompts</span>
+          <span class="accordion-arrow">\u25B8</span>
         </div>
-        <div class="toggle-row">
-          <div class="toggle-track on" data-key="archexa.cacheEnabled" id="cacheToggle">
-            <div class="toggle-thumb"></div>
+        <div class="accordion-body" id="acc-prompts">
+          <div class="field-hint" style="margin-bottom:10px;line-height:1.5">Appended to each command's system prompt. Leave empty for defaults.</div>
+          <div class="prompt-field">
+            <div class="prompt-label"><span class="prompt-indicator unset" id="pi-diagnose"></span>Diagnose</div>
+            <textarea class="prompt-area" rows="2" id="promptDiagnose" data-key="archexa.promptDiagnose" placeholder="e.g. Our logs use structlog JSON. App runs on Kubernetes."></textarea>
           </div>
-          <span class="toggle-label">Enable cache</span>
-        </div>
-        <div class="btn-row">
-          <button class="btn-secondary" id="btnClearCache">Clear Cache</button>
-          <span id="cacheSize" style="font-size:0.85em;color:var(--vscode-descriptionForeground)"></span>
+          <div class="prompt-field">
+            <div class="prompt-label"><span class="prompt-indicator unset" id="pi-review"></span>Review</div>
+            <textarea class="prompt-area" rows="2" id="promptReview" data-key="archexa.promptReview" placeholder="e.g. Focus on security. Ignore style and formatting issues."></textarea>
+          </div>
+          <div class="prompt-field">
+            <div class="prompt-label"><span class="prompt-indicator unset" id="pi-query"></span>Explain</div>
+            <textarea class="prompt-area" rows="2" id="promptQuery" data-key="archexa.promptQuery" placeholder="e.g. Include file paths and line numbers for every function."></textarea>
+          </div>
+          <div class="prompt-field">
+            <div class="prompt-label"><span class="prompt-indicator unset" id="pi-impact"></span>Impact</div>
+            <textarea class="prompt-area" rows="2" id="promptImpact" data-key="archexa.promptImpact" placeholder="e.g. Check gRPC proto compatibility with downstream consumers."></textarea>
+          </div>
+          <div class="prompt-field">
+            <div class="prompt-label"><span class="prompt-indicator unset" id="pi-gist"></span>Gist</div>
+            <textarea class="prompt-area" rows="2" id="promptGist" data-key="archexa.promptGist" placeholder="e.g. Focus on the public API surface and deployment architecture."></textarea>
+          </div>
+          <div class="prompt-field">
+            <div class="prompt-label"><span class="prompt-indicator unset" id="pi-analyze"></span>Analyze (All)</div>
+            <textarea class="prompt-area" rows="2" id="promptAnalyze" data-key="archexa.promptAnalyze" placeholder="e.g. Include Mermaid diagrams for data flow. Focus on microservices."></textarea>
+          </div>
         </div>
       </div>
 
-      <!-- PROMPTS -->
-      <div class="section" id="sec-prompts">
-        <h2>Custom Prompts</h2>
-        <div class="info-box">
-          Custom text is appended to each command's system prompt. Use this to tailor Archexa
-          to your codebase — coding conventions, focus areas, known quirks, or domain context
-          that helps the LLM give better answers.<br/><br/>
-          <strong>Tip:</strong> Be specific. Instead of "review carefully", say "This codebase uses SQLAlchemy 2.0
-          async sessions — flag any sync database calls" or "We use dependency injection via FastAPI Depends — don't flag missing imports for injected params".
+      <!-- ═══ ADVANCED accordion ═══ -->
+      <div class="accordion">
+        <div class="accordion-header" data-accordion="advanced">
+          <span class="accordion-icon">\uD83D\uDD27</span>
+          <span class="accordion-title">Advanced</span>
+          <span class="accordion-arrow">\u25B8</span>
         </div>
-        <div class="field">
-          <label class="field-label"><span class="prompt-indicator unset" id="pi-diagnose"></span>Diagnose</label>
-          <textarea class="prompt-area" id="promptDiagnose" data-key="archexa.promptDiagnose" placeholder="e.g. Our logs use structlog JSON format. The app runs on Kubernetes — check for pod-level issues like OOM, crashloop, and DNS resolution failures."></textarea>
-          <div class="field-hint">Appended when diagnosing errors, logs, and stack traces.</div>
-        </div>
-        <div class="field">
-          <label class="field-label"><span class="prompt-indicator unset" id="pi-review"></span>Review</label>
-          <textarea class="prompt-area" id="promptReview" data-key="archexa.promptReview" placeholder="e.g. Focus on security: SQL injection, XSS, auth bypass. We use Pydantic for validation — check that all API inputs are validated. Ignore style issues."></textarea>
-          <div class="field-hint">Appended when reviewing code for issues.</div>
-        </div>
-        <div class="field">
-          <label class="field-label"><span class="prompt-indicator unset" id="pi-query"></span>Query</label>
-          <textarea class="prompt-area" id="promptQuery" data-key="archexa.promptQuery" placeholder="e.g. This is a DAG-based pipeline orchestrator. When explaining flows, trace the execution from YAML definition through parser to runtime."></textarea>
-          <div class="field-hint">Appended when asking questions about the codebase.</div>
-        </div>
-        <div class="field">
-          <label class="field-label"><span class="prompt-indicator unset" id="pi-impact"></span>Impact</label>
-          <textarea class="prompt-area" id="promptImpact" data-key="archexa.promptImpact" placeholder="e.g. We have downstream consumers via gRPC — check proto file compatibility. Also check database migration impact."></textarea>
-          <div class="field-hint">Appended when analyzing change impact.</div>
-        </div>
-        <div class="field">
-          <label class="field-label"><span class="prompt-indicator unset" id="pi-gist"></span>Gist</label>
-          <textarea class="prompt-area" id="promptGist" data-key="archexa.promptGist" placeholder="e.g. Focus on the public API surface and deployment architecture. Skip test utilities."></textarea>
-          <div class="field-hint">Appended when generating a quick gist overview.</div>
-        </div>
-        <div class="field">
-          <label class="field-label"><span class="prompt-indicator unset" id="pi-analyze"></span>Analyze (All)</label>
-          <textarea class="prompt-area" id="promptAnalyze" data-key="archexa.promptAnalyze" placeholder="e.g. Include Mermaid diagrams for data flow. Focus on the microservices boundaries and inter-service communication."></textarea>
-          <div class="field-hint">Appended to the full architecture analysis. Also serves as a base prompt applied to all commands.</div>
+        <div class="accordion-body" id="acc-advanced">
+          <div class="warning-box">Only change these if hitting context errors or need to reduce API cost.</div>
+
+          <div class="number-row">
+            <label>Max prompt tokens</label>
+            <input type="number" id="promptBudget" data-key="archexa.promptBudget" value="120000" min="1000"/>
+          </div>
+          <div class="number-row">
+            <label>Token reserve</label>
+            <input type="number" id="tokenReserve" data-key="archexa.promptReserve" value="16000" min="1000"/>
+          </div>
+          <div class="number-row">
+            <label>Max files to scan</label>
+            <input type="number" id="maxFiles" data-key="archexa.maxFiles" value="100" min="10"/>
+          </div>
+
+          <!-- Scanning: tags -->
+          <div style="margin-top:10px">
+            <div class="field-label" style="margin-bottom:4px">Scan focus (directories)</div>
+            <div class="tag-container" id="scanFocusTags">
+              <input type="text" class="tag-input" id="scanFocusInput" placeholder="e.g. src/api/ \u2014 Enter to add"/>
+            </div>
+            <div class="field-hint" style="margin-bottom:8px">Limit scanning to these directory prefixes.</div>
+          </div>
+          <div style="margin-bottom:10px">
+            <div class="field-label" style="margin-bottom:4px">Exclusion patterns</div>
+            <div class="tag-container" id="excludeTags">
+              <input type="text" class="tag-input" id="excludeInput" placeholder="e.g. *.test.ts \u2014 Enter to add"/>
+            </div>
+            <div class="field-hint">Glob patterns for files to skip. node_modules, .git already excluded.</div>
+          </div>
+
+          <!-- Binary -->
+          <div style="padding-top:10px;margin-top:4px;border-top:1px solid var(--vscode-editorGroup-border)">
+            <div class="field-label" style="margin-bottom:5px">Binary</div>
+            <div class="bin-path" id="binPath">...</div>
+            <div class="btn-row">
+              <button class="btn-secondary" id="btnVerify">Verify</button>
+              <button class="btn-secondary" id="btnCheckUpdate">Update</button>
+              <button class="btn-secondary" id="btnRedownload">Re-download</button>
+              <button class="btn-secondary" id="btnOpenBin">Open folder</button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- OUTPUT -->
-      <div class="section" id="sec-output">
-        <h2>Output</h2>
-        <div class="info-box">
-          Every Archexa run generates a markdown file with the full analysis. These files are saved
-          to the output directory and can be committed to your repo, shared with the team, or used
-          as documentation. The result panel also has Copy and Save buttons for quick access.
-        </div>
-        <div class="field">
-          <label class="field-label">Output directory</label>
-          <input type="text" id="outputDir" data-key="archexa.outputDir" value=".archexa"/>
-          <div class="field-hint">Relative to workspace root. Common choices: <code>.archexa</code> (hidden), <code>generated</code>, <code>docs/archexa</code></div>
-        </div>
-        <div class="field-hint" style="margin-top:8px">Output format is always Markdown (.md). Files are named with timestamps automatically.</div>
-      </div>
-
-      <!-- REVIEW -->
-      <div class="section" id="sec-review">
-        <h2>Review</h2>
-        <div class="info-box">
-          Archexa reviews go beyond linting — they trace callers, follow data flow across files,
-          and check both sides of interfaces. Findings appear as squiggles in the editor and in the
-          Problems panel, just like TypeScript or ESLint errors.
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-track on" data-key="archexa.showInlineFindings" id="squigglesToggle">
-            <div class="toggle-thumb"></div>
-          </div>
-          <span class="toggle-label">Show inline squiggles</span>
-        </div>
-        <div class="field-hint" style="margin:-6px 0 12px 46px">When enabled, review findings appear as underlines in the editor with severity colors (red/yellow/blue) and in the Problems panel.</div>
-        <div class="toggle-row">
-          <div class="toggle-track" data-key="archexa.autoReviewOnSave" id="autoReviewToggle">
-            <div class="toggle-thumb"></div>
-          </div>
-          <span class="toggle-label">Auto-review on save</span>
-        </div>
-        <div class="field-hint" style="margin:-6px 0 12px 46px">Automatically run a review every time you save a supported file. Uses tokens on every save — enable only if you have a fast, cheap model configured.</div>
-      </div>
-
-      <!-- ADVANCED -->
-      <div class="section" id="sec-advanced">
-        <h2>Advanced</h2>
-        <div class="info-box warning">
-          <strong>Warning:</strong> Change only if you're hitting context window or performance limits.
-          Defaults work well for most codebases.
-        </div>
-        <div class="field">
-          <label class="field-label">Max prompt tokens</label>
-          <div style="display:flex;gap:8px;align-items:center;max-width:400px">
-            <select id="promptBudgetPreset" style="width:160px">
-              <option value="32000">32k (small models)</option>
-              <option value="120000" selected>120k (default)</option>
-              <option value="200000">200k (GPT-4o)</option>
-              <option value="500000">500k (large context)</option>
-              <option value="1000000">1M (Gemini/Claude)</option>
-              <option value="custom">Custom...</option>
-            </select>
-            <input type="number" id="promptBudget" data-key="archexa.promptBudget" value="120000" min="1000" style="width:100px"/>
-          </div>
-          <div class="field-hint">Increase for models with larger context windows (Gemini 1M, Claude 200k)</div>
-        </div>
-        <div class="field">
-          <label class="field-label">Token reserve (output)</label>
-          <div style="display:flex;gap:8px;align-items:center;max-width:400px">
-            <select id="tokenReservePreset" style="width:160px">
-              <option value="4000">4k (default)</option>
-              <option value="8000">8k</option>
-              <option value="16000">16k</option>
-              <option value="32000">32k</option>
-              <option value="custom">Custom...</option>
-            </select>
-            <input type="number" id="tokenReserve" data-key="archexa.promptReserve" value="16000" min="1000" style="width:100px"/>
-          </div>
-        </div>
-        <div class="field">
-          <label class="field-label">Max files to scan</label>
-          <div style="display:flex;gap:8px;align-items:center;max-width:400px">
-            <select id="maxFilesPreset" style="width:160px">
-              <option value="50">50 (fast)</option>
-              <option value="100" selected>100 (default)</option>
-              <option value="500">500</option>
-              <option value="1000">1,000</option>
-              <option value="5000">5,000</option>
-              <option value="custom">Custom...</option>
-            </select>
-            <input type="number" id="maxFiles" data-key="archexa.maxFiles" value="100" min="10" style="width:100px"/>
-          </div>
-        </div>
-        <div class="field">
-          <label class="field-label">Per-file size limit</label>
-          <div style="display:flex;gap:8px;align-items:center;max-width:400px">
-            <select id="fileSizeLimitPreset" style="width:160px">
-              <option value="100000">100 KB</option>
-              <option value="300000" selected>300 KB (default)</option>
-              <option value="512000">512 KB</option>
-              <option value="1048576">1 MB</option>
-              <option value="custom">Custom...</option>
-            </select>
-            <input type="number" id="fileSizeLimit" data-key="archexa.fileSizeLimit" value="300000" min="1024" style="width:100px"/>
-          </div>
-          <div class="field-hint">Skip files larger than this (bytes)</div>
-        </div>
-        <div class="field">
-          <label class="field-label">Log level</label>
-          <select id="logLevel" data-key="archexa.logLevel">
-            <option value="DEBUG">DEBUG</option>
-            <option value="INFO">INFO</option>
-            <option value="WARNING" selected>WARNING</option>
-            <option value="ERROR">ERROR</option>
-          </select>
-        </div>
-        <div class="field">
-          <label class="field-label">Max history entries</label>
-          <div style="display:flex;gap:8px;align-items:center;max-width:400px">
-            <select id="maxHistoryPreset" style="width:160px">
-              <option value="10">10</option>
-              <option value="30" selected>30 (default)</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-              <option value="200">200</option>
-              <option value="custom">Custom...</option>
-            </select>
-            <input type="number" id="maxHistory" data-key="archexa.maxHistory" value="30" min="5" max="200" style="width:80px"/>
-          </div>
-          <div class="field-hint">Number of results to keep in the sidebar Recent Results list.</div>
-        </div>
-      </div>
-    </div>
+    </div><!-- /content-main -->
 
     <!-- YAML Panel -->
     <div class="yaml-panel" id="yamlPanel">
@@ -695,7 +918,7 @@ export class SettingsWebview {
     </div>
   </div>
 
-  <div class="save-toast" id="saveToast">✓ Saved</div>
+  <div class="save-toast" id="saveToast">\u2713 Saved</div>
 
   <script nonce="${n}">
     const vscodeApi = acquireVsCodeApi();
@@ -703,33 +926,30 @@ export class SettingsWebview {
 
     function post(type) { vscodeApi.postMessage({ type }); }
 
-    function copyEl(id) {
-      const text = document.getElementById(id).textContent;
-      navigator.clipboard.writeText(text);
-    }
-
-    // Button bindings (no inline onclick — CSP blocks them)
-    document.getElementById("copyBinPath").addEventListener("click", () => copyEl("binPath"));
+    // ── Button bindings ──
     document.getElementById("btnVerify").addEventListener("click", () => post("verifyBinary"));
     document.getElementById("btnCheckUpdate").addEventListener("click", () => post("checkUpdate"));
     document.getElementById("btnRedownload").addEventListener("click", () => post("redownload"));
     document.getElementById("btnOpenBin").addEventListener("click", () => post("openBinFolder"));
     document.getElementById("btnTestConn").addEventListener("click", () => post("testConnection"));
-    document.getElementById("btnClearCache").addEventListener("click", () => post("clearCache"));
+    document.getElementById("backBtn").addEventListener("click", () => {
+      vscodeApi.postMessage({ type: "navigateBack" });
+    });
 
-    // Nav
-    document.querySelectorAll(".nav-item").forEach(item => {
-      item.addEventListener("click", () => {
-        document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
-        item.classList.add("active");
-        const sec = item.getAttribute("data-section");
-        document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
-        document.getElementById("sec-" + sec).classList.add("active");
-        document.getElementById("topSectionLabel").textContent = item.textContent.trim();
+    // ── Accordion toggle ──
+    document.querySelectorAll(".accordion-header").forEach(header => {
+      header.addEventListener("click", () => {
+        const id = header.getAttribute("data-accordion");
+        const body = document.getElementById("acc-" + id);
+        const arrow = header.querySelector(".accordion-arrow");
+        const isOpen = body.classList.contains("open");
+        body.classList.toggle("open");
+        header.classList.toggle("open");
+        arrow.textContent = isOpen ? "\u25B8" : "\u25BE";
       });
     });
 
-    // Toggle switches
+    // ── Toggle switches ──
     document.querySelectorAll(".toggle-track").forEach(track => {
       track.addEventListener("click", () => {
         track.classList.toggle("on");
@@ -741,54 +961,56 @@ export class SettingsWebview {
       });
     });
 
-    // Text/password inputs
-    document.querySelectorAll("input[data-key], select[data-key], textarea[data-key]").forEach(el => {
-      const evtType = el.tagName === "SELECT" ? "change" : "input";
-      el.addEventListener(evtType, () => {
+    // ── Text/password/number inputs ──
+    document.querySelectorAll("input[data-key], textarea[data-key]").forEach(el => {
+      el.addEventListener("input", () => {
         const key = el.getAttribute("data-key");
         let val = el.value;
-        if (el.type === "range" || el.type === "number") val = Number(val);
+        if (el.type === "number") val = Number(val);
         vscodeApi.postMessage({ type: "update", key, value: val });
         updateYaml();
       });
     });
 
-    // Range sliders — display formatted values
-    function setupRange(id, formatter) {
-      const el = document.getElementById(id);
-      const valEl = document.getElementById(id + "Val");
-      if (!el || !valEl) return;
-      el.addEventListener("input", () => { valEl.textContent = formatter(Number(el.value)); });
-    }
-
-    setupRange("deepMaxIterations", v => String(v));
-    setupRange("cacheTTL", v => v >= 24 ? (v / 24).toFixed(0) + "d" : v + "h");
-
-    // Preset select + number input combos
-    function wirePreset(presetId, inputId) {
-      const preset = document.getElementById(presetId);
-      const input = document.getElementById(inputId);
-      preset.addEventListener("change", function() {
-        if (this.value !== "custom") {
-          input.value = this.value;
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-        }
+    // ── Endpoint chips ──
+    document.querySelectorAll("#endpointChips .chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        const url = chip.getAttribute("data-url");
+        const input = document.getElementById("endpoint");
+        input.value = url;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        syncEndpointChips();
       });
-      input.addEventListener("input", function() {
-        // If typed value matches a preset, select it; otherwise show Custom
-        const opts = preset.querySelectorAll("option");
-        let matched = false;
-        opts.forEach(o => { if (o.value === input.value) { preset.value = o.value; matched = true; } });
-        if (!matched) preset.value = "custom";
+    });
+
+    function syncEndpointChips() {
+      const val = document.getElementById("endpoint").value;
+      document.querySelectorAll("#endpointChips .chip").forEach(c => {
+        c.classList.toggle("active", c.getAttribute("data-url") === val);
       });
     }
-    wirePreset("promptBudgetPreset", "promptBudget");
-    wirePreset("tokenReservePreset", "tokenReserve");
-    wirePreset("maxFilesPreset", "maxFiles");
-    wirePreset("fileSizeLimitPreset", "fileSizeLimit");
-    wirePreset("maxHistoryPreset", "maxHistory");
+    document.getElementById("endpoint").addEventListener("input", syncEndpointChips);
 
-    // API key show/hide
+    // ── Model chips ──
+    document.querySelectorAll("#modelChips .chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        const m = chip.getAttribute("data-model");
+        const input = document.getElementById("model");
+        input.value = m;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        syncModelChips();
+      });
+    });
+
+    function syncModelChips() {
+      const val = document.getElementById("model").value;
+      document.querySelectorAll("#modelChips .chip").forEach(c => {
+        c.classList.toggle("active", c.getAttribute("data-model") === val);
+      });
+    }
+    document.getElementById("model").addEventListener("input", syncModelChips);
+
+    // ── API key show/hide ──
     document.getElementById("toggleApiKey").addEventListener("click", () => {
       const inp = document.getElementById("apiKey");
       const btn = document.getElementById("toggleApiKey");
@@ -796,7 +1018,7 @@ export class SettingsWebview {
       else { inp.type = "password"; btn.textContent = "Show"; }
     });
 
-    // Tag inputs — map container IDs to VS Code setting keys
+    // ── Tag inputs ──
     const TAG_SETTINGS = {
       "excludeTags": "archexa.excludePatterns",
       "scanFocusTags": "archexa.scanFocus",
@@ -805,7 +1027,6 @@ export class SettingsWebview {
     function collectTags(containerId) {
       const tags = [];
       document.getElementById(containerId).querySelectorAll(".tag").forEach(t => {
-        // Get text content minus the "×" remove button
         const text = t.childNodes[0]?.textContent?.trim();
         if (text) tags.push(text);
       });
@@ -841,7 +1062,7 @@ export class SettingsWebview {
       tag.textContent = text + " ";
       const removeBtn = document.createElement("span");
       removeBtn.className = "tag-remove";
-      removeBtn.textContent = "×";
+      removeBtn.textContent = "\u00D7";
       removeBtn.addEventListener("click", () => {
         tag.remove();
         syncTagSetting(containerId);
@@ -850,7 +1071,7 @@ export class SettingsWebview {
       container.insertBefore(tag, input);
     }
 
-    // Prompt indicators
+    // ── Prompt indicators ──
     document.querySelectorAll("textarea.prompt-area").forEach(ta => {
       ta.addEventListener("input", () => {
         const name = ta.id.replace("prompt", "").toLowerCase();
@@ -863,19 +1084,19 @@ export class SettingsWebview {
       });
     });
 
-    // YAML toggle
+    // ── YAML toggle ──
     document.getElementById("yamlToggle").addEventListener("click", () => {
       const panel = document.getElementById("yamlPanel");
       panel.classList.toggle("visible");
       updateYaml();
     });
 
-    // Save button
+    // ── Save button ──
     document.getElementById("saveBtn").addEventListener("click", () => {
       vscodeApi.postMessage({ type: "save" });
     });
 
-    // Receive messages
+    // ── Receive messages ──
     window.addEventListener("message", (event) => {
       const msg = event.data;
       if (msg.type === "init") {
@@ -883,63 +1104,57 @@ export class SettingsWebview {
         applyConfig(msg.config);
       } else if (msg.type === "saveConfirmed") {
         const toast = document.getElementById("saveToast");
+        const btn = document.getElementById("saveBtn");
+        btn.textContent = "\u2713";
+        btn.classList.add("saved");
         toast.style.display = "block";
-        setTimeout(() => { toast.style.display = "none"; }, 2000);
+        setTimeout(() => {
+          toast.style.display = "none";
+          btn.textContent = "Save";
+          btn.classList.remove("saved");
+        }, 1800);
       } else if (msg.type === "connResult") {
         const el = document.getElementById("connStatus");
         el.style.display = "block";
         if (msg.pending) {
           el.style.background = "var(--vscode-editor-lineHighlightBackground)";
           el.style.color = "var(--vscode-editor-foreground)";
-          el.innerHTML = "⟳ " + msg.message;
+          el.innerHTML = "\u27F3 " + msg.message;
         } else if (msg.ok) {
           el.style.background = "var(--vscode-terminal-ansiGreen, #4ec966)";
           el.style.color = "#000";
-          el.innerHTML = "● " + msg.message;
+          el.innerHTML = "\u25CF " + msg.message;
         } else {
           el.style.background = "var(--vscode-inputValidation-errorBackground, #5a1d1d)";
           el.style.color = "var(--vscode-errorForeground, #f44747)";
-          el.innerHTML = "✗ " + msg.message;
+          el.innerHTML = "\u2717 " + msg.message;
         }
       }
     });
 
     function applyConfig(c) {
       if (c.binaryPath) document.getElementById("binPath").textContent = c.binaryPath;
-      if (c.binaryVersion) document.getElementById("binVersion").textContent = c.binaryVersion;
+      if (c.binaryVersion) {
+        document.getElementById("versionBadge").textContent = "\u25CF v" + c.binaryVersion;
+      }
       if (c.apiKey) document.getElementById("apiKey").value = c.apiKey;
-      if (c.model) document.getElementById("model").value = c.model;
-      if (c.endpoint) document.getElementById("endpoint").value = c.endpoint;
+      if (c.model) {
+        document.getElementById("model").value = c.model;
+        syncModelChips();
+      }
+      if (c.endpoint) {
+        document.getElementById("endpoint").value = c.endpoint;
+        syncEndpointChips();
+      }
 
       setToggle("deepToggle", c.deepByDefault !== false);
-      setToggle("cacheToggle", c.cacheEnabled !== false);
       setToggle("squigglesToggle", c.showInlineFindings !== false);
       setToggle("autoReviewToggle", c.autoReviewOnSave === true);
-      setToggle("tlsToggle", c.tlsVerify !== false);
 
-      if (c.deepMaxIterations) {
-        document.getElementById("deepMaxIterations").value = c.deepMaxIterations;
-        document.getElementById("deepMaxIterationsVal").textContent = String(c.deepMaxIterations);
-      }
-      // Advanced numeric fields — set value and sync preset dropdown
-      function setNumericField(inputId, presetId, value) {
-        if (value == null) return;
-        const input = document.getElementById(inputId);
-        const preset = document.getElementById(presetId);
-        if (input) input.value = value;
-        if (preset) {
-          const opt = preset.querySelector('option[value="' + value + '"]');
-          preset.value = opt ? String(value) : "custom";
-        }
-      }
-      setNumericField("promptBudget", "promptBudgetPreset", c.promptBudget);
-      setNumericField("tokenReserve", "tokenReservePreset", c.promptReserve);
-      setNumericField("maxFiles", "maxFilesPreset", c.maxFiles);
-      setNumericField("fileSizeLimit", "fileSizeLimitPreset", c.fileSizeLimit);
-      setNumericField("maxHistory", "maxHistoryPreset", c.maxHistory);
-
-      if (c.outputDir) document.getElementById("outputDir").value = c.outputDir;
-      if (c.logLevel) document.getElementById("logLevel").value = c.logLevel;
+      // Advanced numeric fields
+      if (c.promptBudget != null) document.getElementById("promptBudget").value = c.promptBudget;
+      if (c.promptReserve != null) document.getElementById("tokenReserve").value = c.promptReserve;
+      if (c.maxFiles != null) document.getElementById("maxFiles").value = c.maxFiles;
 
       ["Diagnose", "Review", "Query", "Impact", "Gist", "Analyze"].forEach(name => {
         const key = "prompt" + name;
@@ -954,14 +1169,11 @@ export class SettingsWebview {
         }
       });
 
-      // Tag-based fields: scan focus and exclude patterns
+      // Tag-based fields
       function loadTags(containerId, inputId, values) {
         if (!Array.isArray(values)) return;
-        // Clear existing tags
         const container = document.getElementById(containerId);
-        const input = document.getElementById(inputId);
         container.querySelectorAll(".tag").forEach(t => t.remove());
-        // Add tags from config
         values.forEach(v => { if (v) addTag(containerId, inputId, v); });
       }
       loadTags("scanFocusTags", "scanFocusInput", c.scanFocus || []);
@@ -980,12 +1192,7 @@ export class SettingsWebview {
       if (!pre) return;
       const model = document.getElementById("model")?.value || "gpt-4o";
       const endpoint = document.getElementById("endpoint")?.value || "https://api.openai.com/v1/";
-      const tlsVerify = document.getElementById("tlsToggle")?.classList.contains("on") ?? true;
       const deep = document.getElementById("deepToggle")?.classList.contains("on") ?? true;
-      const maxIter = document.getElementById("deepMaxIterations")?.value || "15";
-      const cache = document.getElementById("cacheToggle")?.classList.contains("on") ?? true;
-      const outputDir = document.getElementById("outputDir")?.value || ".archexa";
-      const logLevel = document.getElementById("logLevel")?.value || "WARNING";
       const budget = document.getElementById("promptBudget")?.value || "120000";
 
       let yaml = "archexa:\\n";
@@ -993,13 +1200,8 @@ export class SettingsWebview {
       yaml += "  openai:\\n";
       yaml += '    model: "' + model + '"\\n';
       yaml += '    endpoint: "' + endpoint + '"\\n';
-      yaml += "    tls_verify: " + tlsVerify + "\\n";
       yaml += "  deep:\\n";
       yaml += "    enabled: " + deep + "\\n";
-      yaml += "    max_iterations: " + maxIter + "\\n";
-      yaml += "  cache: " + cache + "\\n";
-      yaml += '  output: "' + outputDir + '"\\n';
-      yaml += '  log_level: "' + logLevel + '"\\n';
       yaml += "  limits:\\n";
       yaml += "    prompt_budget: " + budget + "\\n";
 
@@ -1012,7 +1214,6 @@ export class SettingsWebview {
       if (Object.keys(prompts).length > 0) {
         yaml += "  prompts:\\n";
         for (const [k, v] of Object.entries(prompts)) {
-          // CLI uses "user" for the analyze/all prompt
           const cliKey = k === "analyze" ? "user" : k;
           yaml += "    " + cliKey + ": |\\n      " + v.replace(/\\n/g, "\\n      ") + "\\n";
         }
@@ -1032,7 +1233,7 @@ export class SettingsWebview {
         excludeTags.forEach(t => { yaml += '    - "' + t + '"\\n'; });
       }
 
-      pre.textContent = yaml.replace(/\\n/g, "\\n");
+      pre.textContent = yaml.replace(/\\\\n/g, "\\n");
     }
   </script>
 </body>

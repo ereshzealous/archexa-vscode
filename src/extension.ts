@@ -7,7 +7,6 @@ import { ArchexaBridge } from "./bridge.js";
 import { DiagnosticsManager } from "./diagnosticsManager.js";
 import { StatusBarItem } from "./statusBarItem.js";
 import { SidebarProvider, HistoryEntry } from "./sidebarProvider.js";
-import { SettingsWebview } from "./settingsWebview.js";
 import { ArchexaWebviewPanel } from "./webviewPanel.js";
 import { registerDiagnoseCommands } from "./commands/diagnose.js";
 import { registerReviewCommands } from "./commands/review.js";
@@ -50,11 +49,16 @@ export async function activate(
     logger.info("No binary found — launching onboarding");
   }
 
+  // Sidebar (registered early so it's always available)
+  const sidebar = new SidebarProvider(ctx);
+  ctx.subscriptions.push(
+    vscode.window.registerWebviewViewProvider("archexa.sidebar", sidebar)
+  );
+
   // Always register these commands so they work even without binary
-  const settings = new SettingsWebview(ctx);
   ctx.subscriptions.push(
     vscode.commands.registerCommand("archexa.openSettings", () =>
-      settings.show()
+      sidebar.showSettings()
     ),
     vscode.commands.registerCommand("archexa.showSetup", () => {
       const onboarding = new OnboardingWebview(ctx, binManager, logger);
@@ -80,7 +84,15 @@ export async function activate(
   const bridge = new ArchexaBridge(binaryPath, configPath, logger);
   const diagnostics = new DiagnosticsManager(ctx);
   const statusBar = new StatusBarItem();
-  const sidebar = new SidebarProvider(ctx);
+
+  // Wire chat services into the sidebar
+  sidebar.setServices({
+    bridge,
+    diagnostics,
+    statusBar,
+    logger,
+    extensionUri: ctx.extensionUri,
+  });
 
   const services = {
     bridge,
@@ -92,11 +104,6 @@ export async function activate(
   };
 
   ctx.subscriptions.push(statusBar, diagnostics);
-
-  // 4. Sidebar (webview)
-  ctx.subscriptions.push(
-    vscode.window.registerWebviewViewProvider("archexa.sidebar", sidebar)
-  );
 
   // 5. Commands
   ctx.subscriptions.push(

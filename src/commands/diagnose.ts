@@ -1,92 +1,15 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * as crypto from "crypto";
-import { ArchexaBridge } from "../bridge.js";
-import { DiagnosticsManager } from "../diagnosticsManager.js";
-import { StatusBarItem } from "../statusBarItem.js";
 import { SidebarProvider } from "../sidebarProvider.js";
-import { ArchexaWebviewPanel } from "../webviewPanel.js";
-import { Logger } from "../utils/logger.js";
 
 export interface DiagnoseServices {
-  bridge: ArchexaBridge;
-  diagnostics: DiagnosticsManager;
-  statusBar: StatusBarItem;
   sidebar: SidebarProvider;
-  logger: Logger;
-  extensionUri: vscode.Uri;
-}
-
-async function runDiagnose(
-  cliArgs: string[],
-  panelTitle: string,
-  scopeHint: string,
-  services: DiagnoseServices
-): Promise<void> {
-  const { bridge, statusBar, sidebar, logger, extensionUri } = services;
-  const tokenSource = new vscode.CancellationTokenSource();
-  const cfg = vscode.workspace.getConfiguration("archexa");
-
-  const panel = ArchexaWebviewPanel.getOrCreate(
-    "diagnose", panelTitle, vscode.ViewColumn.Beside, extensionUri
-  );
-  panel.reset(panelTitle, "diagnose");
-  panel.setMeta(
-    cfg.get<string>("model") ?? "gpt-4o",
-    vscode.workspace.workspaceFolders?.[0]?.name ?? ""
-  );
-
-  statusBar.setRunning("Diagnose", tokenSource);
-  sidebar.showProgress("Starting diagnose...", 0);
-
-  let durationMs = 0;
-  let promptTokens = 0;
-  let completionTokens = 0;
-
-  try {
-    const result = await bridge.run({
-      command: "diagnose",
-      args: cliArgs,
-      onChunk: (chunk) => panel.appendChunk(chunk),
-      onProgress: (phase, total, label, detail) => {
-        panel.updateProgress(phase, total, label, detail);
-        const pct = total > 0 ? Math.round((phase / total) * 100) : 0;
-        sidebar.showProgress(`[${phase}/${total}] ${label}`, pct);
-      },
-      onDone: (duration, prompt, completion) => { durationMs = duration; promptTokens = prompt; completionTokens = completion; },
-      token: tokenSource.token,
-    });
-    durationMs = durationMs || result.durationMs;
-
-    statusBar.setDone("Diagnose complete");
-    panel.setDone(durationMs, promptTokens, completionTokens);
-    sidebar.addToHistory({
-      id: crypto.randomUUID(),
-      cmd: "diagnose",
-      title: `Diagnose — ${scopeHint}`,
-      timestamp: Date.now(),
-      markdown: panel.getBuffer(),
-    });
-  } catch (err: unknown) {
-    if (tokenSource.token.isCancellationRequested) {
-      statusBar.setIdle();
-      panel.setCancelled();
-    } else {
-      const message = err instanceof Error ? err.message : String(err);
-      statusBar.setError(message);
-      panel.showError(message);
-      panel.setDone();
-      logger.error(`Diagnose failed: ${message}`);
-    }
-  } finally {
-    sidebar.hideProgress();
-    tokenSource.dispose();
-  }
 }
 
 export function registerDiagnoseCommands(
   services: DiagnoseServices
 ): vscode.Disposable[] {
+  const { sidebar } = services;
   return [
     vscode.commands.registerCommand("archexa.diagnoseSelection", async () => {
       const editor = vscode.window.activeTextEditor;
@@ -101,11 +24,10 @@ export function registerDiagnoseCommands(
         );
         return;
       }
-      await runDiagnose(
+      await sidebar.runCommand(
+        "diagnose",
         ["--error", selected.slice(0, 3000)],
-        "Diagnose",
-        selected.slice(0, 60),
-        services
+        `Diagnose — ${selected.slice(0, 60)}`
       );
     }),
 
@@ -115,11 +37,10 @@ export function registerDiagnoseCommands(
         vscode.window.showWarningMessage("Clipboard is empty");
         return;
       }
-      await runDiagnose(
+      await sidebar.runCommand(
+        "diagnose",
         ["--error", text.slice(0, 3000)],
-        "Diagnose",
-        "clipboard",
-        services
+        "Diagnose — clipboard"
       );
     }),
 
@@ -161,11 +82,10 @@ export function registerDiagnoseCommands(
       if (choice.value) {
         args.push("--last", choice.value);
       }
-      await runDiagnose(
+      await sidebar.runCommand(
+        "diagnose",
         args,
-        "Diagnose",
-        path.basename(uris[0].fsPath),
-        services
+        `Diagnose — ${path.basename(uris[0].fsPath)}`
       );
     }),
   ];
