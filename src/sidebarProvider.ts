@@ -956,7 +956,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     /* ── Settings styles ── */
     .settings-scroll {
-      flex: 1; overflow-y: auto; padding: 12px;
+      flex: 1; overflow-y: auto; padding: 8px 10px;
     }
     .settings-top-bar {
       background: var(--vscode-sideBar-background);
@@ -1000,11 +1000,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     .section-label {
       color: var(--vscode-descriptionForeground); font-size: 9.5px;
       text-transform: uppercase; letter-spacing: 1px; font-weight: 600;
-      margin-bottom: 8px; margin-top: 14px;
+      margin-bottom: 6px; margin-top: 10px;
     }
     .section-label:first-child { margin-top: 0; }
 
-    .field { margin-bottom: 12px; }
+    .field { margin-bottom: 8px; }
     .field-row {
       display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;
     }
@@ -1053,7 +1053,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       background: rgba(56,139,253,.06);
       border-left: 3px solid var(--vscode-textLink-foreground);
       border-radius: 0 4px 4px 0;
-      padding: 7px 10px; margin-bottom: 12px;
+      padding: 6px 9px; margin-bottom: 8px;
       font-size: 10.5px; line-height: 1.5;
       color: var(--vscode-descriptionForeground);
     }
@@ -1304,8 +1304,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     .settings-save-row {
-      display: flex; justify-content: flex-end; padding-top: 10px;
-      margin-top: 6px; border-top: 1px solid var(--vscode-editorGroup-border);
+      display: flex; justify-content: flex-end; padding-top: 6px;
+      margin-top: 4px;
     }
     .settings-save-row .save-btn {
       background: var(--vscode-button-background); color: var(--vscode-button-foreground);
