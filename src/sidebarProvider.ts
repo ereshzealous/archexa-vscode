@@ -256,6 +256,98 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this.refresh();
   }
 
+  /** Run a command in the sidebar chat (used by right-click commands). */
+  async runCommand(command: string, args: string[], label: string): Promise<void> {
+    if (!this.services) {
+      vscode.window.showWarningMessage("Archexa services not ready. Please wait for initialization.");
+      return;
+    }
+
+    // Reveal the sidebar and switch to chat screen
+    if (this.view) {
+      this.view.show?.(true);
+    }
+    this.postMessage({ type: "showScreen", screen: "chat" });
+
+    const msgId = Date.now().toString();
+    const displayText = `/${command} ${args.join(" ")}`.trim();
+
+    // Show user message bubble
+    this.postMessage({ type: "userMessage", text: displayText });
+    this.postMessage({
+      type: "assistantStart", id: msgId,
+      label, command,
+    });
+
+    this.tokenSource = new vscode.CancellationTokenSource();
+    this.services.statusBar.setRunning(label, this.tokenSource);
+    this.streamBuffer = "";
+    this.logLines.set(msgId, []);
+
+    try {
+      const result = await this.services.bridge.run({
+        command,
+        args,
+        onChunk: (chunk) => {
+          this.streamBuffer += chunk;
+          this.debounceStreamRender(msgId);
+        },
+        onProgress: (phase, total, progressLabel, detail) => {
+          this.postMessage({ type: "chatProgress", id: msgId, phase, total, label: progressLabel, detail });
+          const pct = total > 0 ? Math.round((phase / total) * 100) : 0;
+          this.showProgress(`[${phase}/${total}] ${progressLabel}`, pct);
+        },
+        onFinding: command === "review" ? (f: ReviewFinding) => {
+          const cfg = vscode.workspace.getConfiguration("archexa");
+          if (cfg.get<boolean>("showInlineFindings")) this.services!.diagnostics.addFinding(f);
+          this.postMessage({ type: "finding", id: msgId, finding: f });
+        } : undefined,
+        onLog: (line) => {
+          this.logLines.get(msgId)?.push(line);
+          this.postMessage({ type: "agentLog", id: msgId, line });
+        },
+        onDone: (durationMs, promptTokens, completionTokens) => {
+          this.postMessage({ type: "assistantDone", id: msgId, durationMs, promptTokens, completionTokens });
+        },
+        token: this.tokenSource.token,
+      });
+
+      // Final render
+      if (this.debounceTimer) clearTimeout(this.debounceTimer);
+      const html = linkifyFileRefs(marked.parse(this.streamBuffer) as string);
+      this.postMessage({ type: "assistantChunk", id: msgId, html });
+      this.responseBuffers.set(msgId, this.streamBuffer);
+
+      this.postMessage({ type: "assistantDone", id: msgId, durationMs: result.durationMs });
+      this.services.statusBar.setDone(`${label} complete`);
+
+      // History
+      const validCmds = ["diagnose", "review", "query", "impact", "gist", "analyze"] as const;
+      const cmd = validCmds.includes(command as typeof validCmds[number])
+        ? command as typeof validCmds[number] : "query" as const;
+      this.addToHistory({
+        id: crypto.randomUUID(), cmd,
+        title: `${label}`,
+        timestamp: Date.now(), markdown: this.streamBuffer,
+      });
+    } catch (err: unknown) {
+      if (this.debounceTimer) clearTimeout(this.debounceTimer);
+      if (this.tokenSource?.token.isCancellationRequested) {
+        this.postMessage({ type: "assistantCancelled", id: msgId });
+        this.services.statusBar.setIdle();
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        this.postMessage({ type: "assistantError", id: msgId, message });
+        this.services.statusBar.setError(message);
+        this.services.logger.error(`${label} failed: ${message}`);
+      }
+    } finally {
+      this.hideProgress();
+      this.tokenSource?.dispose();
+      this.tokenSource = undefined;
+    }
+  }
+
   /** Show settings screen in sidebar (called from command palette) */
   showSettings(): void {
     this.postMessage({ type: "showScreen", screen: "settings" });
@@ -338,7 +430,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const selText = hasSelection ? editor!.document.getText(selection).split("\n")[0].slice(0, 40) : undefined;
     this.postMessage({
       type: "editorContext",
-      file: file ? path.basename(file) : undefined,
+      file: file ?? undefined,
       filePath: file,
       selection: selText,
     });
@@ -1602,6 +1694,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       if (el) el.classList.add("active");
       // Input area visible on home + chat, hidden on settings
       inputArea.style.display = (name === "settings") ? "none" : "block";
+      if (name === "home") renderHistory();
     }
 
     // ── SVG codicons (16x16, currentColor, VS Code native style) ──
