@@ -877,10 +877,9 @@ body {
 
 /* Shimmer skeleton */
 .skeleton {
-  background: var(--vscode-editor-background);
-  border: 1px solid var(--vscode-editorGroup-border);
-  border-radius: 3px 6px 6px 6px;
-  padding: 14px;
+  background: transparent;
+  border: none;
+  padding: 16px 4px;
   overflow: hidden;
   width: 100%;
 }
