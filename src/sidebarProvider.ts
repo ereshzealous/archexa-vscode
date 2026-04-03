@@ -1768,6 +1768,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       <div class="rf-hints"><kbd>Enter</kbd> send <kbd>Esc</kbd> back to commands</div>
     </div>
 
+    <!-- Diagnose command form (Step 2) -->
+    <div id="diagnoseForm" style="display:none">
+      <textarea class="df-textarea" id="dfErrorText" placeholder="Paste error message or stack trace here...\n\ne.g.\nTraceback (most recent call last):\n  File &quot;src/aiorch/runtime/action.py&quot;, line 111\n    proc = await asyncio.create_subprocess_exec(...)\nRuntimeError: event loop is closed"></textarea>
+      <div class="df-help">Archexa will trace the exact file and line, read surrounding code, and find the root cause. You can also describe the error in plain English.</div>
+      <button class="df-send-btn" id="dfSendBtn">Diagnose</button>
+      <div class="rf-hints"><kbd>Ctrl+Enter</kbd> send <kbd>Esc</kbd> back</div>
+    </div>
+
     <!-- Default input row -->
     <div id="defaultInputRow">
       <div id="fileChips" class="file-chips"></div>
@@ -2068,6 +2076,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const cmdChipArea = document.getElementById("cmdChipArea");
 
     const reviewForm = document.getElementById("reviewForm");
+    const diagnoseForm = document.getElementById("diagnoseForm");
     const defaultInputRow = document.getElementById("defaultInputRow");
     let reviewMode = "files"; // "files" | "changed" | "branch"
     let rfFileList = []; // file chips in review form
@@ -2087,6 +2096,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       slashMenu.dataset.mode = "";
 
       // Show command-specific form
+      reviewForm.style.display = "none";
+      diagnoseForm.style.display = "none";
       if (type === "review") {
         defaultInputRow.style.display = "none";
         reviewForm.style.display = "block";
@@ -2095,8 +2106,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         renderRfPills();
         renderRfFileChips();
         document.getElementById("rfFileInput").focus();
+      } else if (type === "diagnose") {
+        defaultInputRow.style.display = "none";
+        diagnoseForm.style.display = "block";
+        document.getElementById("dfErrorText").value = "";
+        document.getElementById("dfErrorText").focus();
       } else {
-        reviewForm.style.display = "none";
         defaultInputRow.style.display = "block";
         chatInput.value = "";
         chatInput.placeholder = getCmdPlaceholder(type);
@@ -2109,6 +2124,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       cmdChipArea.style.display = "none";
       cmdChipArea.innerHTML = "";
       reviewForm.style.display = "none";
+      diagnoseForm.style.display = "none";
       defaultInputRow.style.display = "block";
       rfFileList = [];
       chatInput.value = "";
@@ -2207,6 +2223,22 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const focus = document.getElementById("rfFocusInput").value.trim();
       if (focus) text += " --focus " + focus;
       vscodeApi.postMessage({ type: "send", text: text });
+      clearCmdChip();
+    }
+
+    // ── Diagnose form handlers ──
+    document.getElementById("dfSendBtn").addEventListener("click", sendDiagnoseForm);
+
+    document.getElementById("dfErrorText").addEventListener("keydown", function(e) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendDiagnoseForm(); }
+      if (e.key === "Escape") { e.preventDefault(); clearCmdChip(); }
+    });
+
+    function sendDiagnoseForm() {
+      const errorText = document.getElementById("dfErrorText").value.trim();
+      if (!errorText) return;
+      if (currentScreen === "home") showScreen("chat");
+      vscodeApi.postMessage({ type: "send", text: "/diagnose " + errorText });
       clearCmdChip();
     }
 

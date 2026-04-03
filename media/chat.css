@@ -1304,6 +1304,55 @@ body {
   margin-top: 4px;
 }
 
+/* ── Diagnose form ──────────────────────────────────── */
+
+.df-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 100px;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-editorGroup-border));
+  border-radius: 5px;
+  color: var(--vscode-input-foreground);
+  font-size: 11px;
+  padding: 8px 10px;
+  outline: none;
+  font-family: var(--vscode-editor-font-family);
+  resize: vertical;
+  line-height: 1.6;
+  transition: border-color 0.12s;
+  margin-bottom: 6px;
+}
+
+.df-textarea:focus { border-color: var(--vscode-focusBorder); }
+.df-textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
+
+.df-help {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.df-send-btn {
+  width: 100%;
+  background: var(--vscode-editor-lineHighlightBackground);
+  border: 1px solid var(--vscode-editorGroup-border);
+  color: var(--vscode-editor-foreground);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s;
+  margin-bottom: 4px;
+}
+
+.df-send-btn:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--vscode-focusBorder);
+}
+
 /* ── Input row ──────────────────────────────────────── */
 
 .input-row {
