@@ -1580,13 +1580,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
         <div class="prompt-editor" data-prompt="promptQuery">
           <div class="prompt-editor-header">
-            <span class="prompt-cmd-icon"><svg width="12" height="12" viewBox="0 0 16 16"><path d="M8 1a5 5 0 0 0-3 9v2a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2a5 5 0 0 0-3-9zM6 14h4v1H6z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></span>
-            <span class="prompt-editor-name">Explain</span>
+            <span class="prompt-cmd-icon"><svg width="12" height="12" viewBox="0 0 16 16"><path d="M2 2h12v9H6l-4 3V2z" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="5.5" cy="7" r="0.7" fill="currentColor"/><circle cx="8" cy="7" r="0.7" fill="currentColor"/><circle cx="10.5" cy="7" r="0.7" fill="currentColor"/></svg></span>
+            <span class="prompt-editor-name">Query</span>
             <span class="prompt-badge" id="pi-query-badge" style="display:none">set</span>
             <span class="prompt-chars" id="pi-query-chars"></span>
             <button class="prompt-expand-btn" data-target="promptQuery">\u270E Expand editor</button>
           </div>
-          <div class="prompt-editor-body" id="promptQuery-body">
+          <div class="prompt-editor-body" id="promptQuery-body" style="display:none">
             <textarea class="prompt-area" id="promptQuery" data-key="archexa.promptQuery" placeholder="e.g. Always include the full call chain. Reference every file path with line numbers."></textarea>
             <div class="prompt-editor-footer">
               <span style="color:var(--vscode-descriptionForeground);font-size:9.5px">Markdown supported</span>
@@ -1603,7 +1603,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             <span class="prompt-chars" id="pi-review-chars"></span>
             <button class="prompt-expand-btn" data-target="promptReview">\u270E Expand editor</button>
           </div>
-          <div class="prompt-editor-body" id="promptReview-body">
+          <div class="prompt-editor-body" id="promptReview-body" style="display:none">
             <textarea class="prompt-area" id="promptReview" data-key="archexa.promptReview" placeholder="e.g. Focus on security: SQL injection, XSS, auth bypass. Ignore style and formatting issues."></textarea>
             <div class="prompt-editor-footer"><span style="color:var(--vscode-descriptionForeground);font-size:9.5px">Markdown supported</span><span class="prompt-chars-bottom" id="pi-review-chars-b"></span></div>
           </div>
@@ -1617,7 +1617,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             <span class="prompt-chars" id="pi-diagnose-chars"></span>
             <button class="prompt-expand-btn" data-target="promptDiagnose">\u270E Expand editor</button>
           </div>
-          <div class="prompt-editor-body" id="promptDiagnose-body">
+          <div class="prompt-editor-body" id="promptDiagnose-body" style="display:none">
             <textarea class="prompt-area" id="promptDiagnose" data-key="archexa.promptDiagnose" placeholder="e.g. Our logs use structlog JSON format. The app runs on Kubernetes \u2014 check for pod-level issues."></textarea>
             <div class="prompt-editor-footer"><span style="color:var(--vscode-descriptionForeground);font-size:9.5px">Markdown supported</span><span class="prompt-chars-bottom" id="pi-diagnose-chars-b"></span></div>
           </div>
@@ -1631,7 +1631,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             <span class="prompt-chars" id="pi-impact-chars"></span>
             <button class="prompt-expand-btn" data-target="promptImpact">\u270E Expand editor</button>
           </div>
-          <div class="prompt-editor-body" id="promptImpact-body">
+          <div class="prompt-editor-body" id="promptImpact-body" style="display:none">
             <textarea class="prompt-area" id="promptImpact" data-key="archexa.promptImpact" placeholder="e.g. We have downstream gRPC consumers \u2014 check proto file compatibility."></textarea>
             <div class="prompt-editor-footer"><span style="color:var(--vscode-descriptionForeground);font-size:9.5px">Markdown supported</span><span class="prompt-chars-bottom" id="pi-impact-chars-b"></span></div>
           </div>
@@ -2787,13 +2787,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         if (el && c[key]) {
           el.value = c[key];
           updatePromptMeta(el);
-          // Auto-expand editors that have content
-          if (c[key].trim()) {
-            const body = document.getElementById(key + "-body");
-            const btn = document.querySelector('.prompt-expand-btn[data-target="' + key + '"]');
-            if (body) body.style.display = "block";
-            if (btn) btn.textContent = "\\u25BC Collapse";
-          }
         }
       });
     }
