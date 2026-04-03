@@ -66,7 +66,7 @@ function detectIntent(text: string): string | null {
   const s = text.toLowerCase();
   if (/\berror\b|exception|failing|crash|why is|traceback|not work|decode|typeerror|stacktrace/.test(s)) return "diagnose";
   if (/\breview\b|check|securi|bug|vulnerab|\bsql\b|jwt|audit|issues?\b/.test(s)) return "review";
-  if (/\bexplain\b|what (does|is)|how does|understand|purpose|walk me/.test(s)) return "explain";
+  if (/\bexplain\b|what (does|is)|how does|understand|purpose|walk me/.test(s)) return "query";
   if (/\bimpact\b|what breaks|what happens if|change|affect|downstream/.test(s)) return "impact";
   return null;
 }
@@ -1782,7 +1782,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     // ── SVG codicons (16x16, currentColor, VS Code native style) ──
     const ICONS = {
-      explain:  '<svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 1a5 5 0 0 0-3 9v2a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2a5 5 0 0 0-3-9zM6 14h4v1H6z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
       review:   '<svg width="14" height="14" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/><line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
       diagnose: '<svg width="14" height="14" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/><line x1="8" y1="5" x2="8" y2="9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.8" fill="currentColor"/></svg>',
       impact:   '<svg width="14" height="14" viewBox="0 0 16 16"><path d="M9 1L4 9h4l-1 6 6-8H9l1-6z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>',
@@ -1792,7 +1791,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     };
 
     const CMDS = [
-      { id:"explain",  type:"explain",  slash:"/explain",           args:"<fn>",       desc:"Understand any function, file, or pattern",   what:"Plain-English \\u00B7 risks \\u00B7 dependencies" },
       { id:"review",   type:"review",   slash:"/review",            args:"<file>",     desc:"Find bugs, security issues, risky patterns",  what:"Findings first \\u00B7 then explanation \\u00B7 editor squiggles" },
       { id:"review2",  type:"review",   slash:"/review --changed",  args:"",           desc:"Review uncommitted changes",                  what:"Review your git changes" },
       { id:"diagnose", type:"diagnose", slash:"/diagnose",          args:"<error>",    desc:"Trace any error to its root cause",           what:"Call chain first \\u00B7 root cause \\u00B7 fix" },
@@ -1806,14 +1804,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const s = t.toLowerCase();
       if (/\\berror\\b|exception|failing|crash|why is|traceback|not work|decode|typeerror/.test(s)) return { id:"diagnose", label:"Diagnose", icon:ICONS.diagnose };
       if (/\\breview\\b|check|securi|bug|vulnerab|\\bsql\\b|jwt|audit|issues?/.test(s)) return { id:"review", label:"Review", icon:ICONS.review };
-      if (/explain|what (does|is)|how does|understand|purpose/.test(s)) return { id:"explain", label:"Explain", icon:ICONS.explain };
+      if (/explain|what (does|is)|how does|understand|purpose/.test(s)) return { id:"query", label:"Query", icon:ICONS.query };
       if (/impact|what breaks|what happens if|change|affect/.test(s)) return { id:"impact", label:"Impact", icon:ICONS.impact };
       return null;
     }
 
     // ── Build home command cards ──
-    const PRIMARY = ["explain", "review", "diagnose"];
-    const SECONDARY = ["impact", "query", "gist", "analyze"];
+    const PRIMARY = ["review", "diagnose", "impact"];
+    const SECONDARY = ["query", "gist", "analyze"];
 
     // Primary: full cards with icon, title, description, subtitle
     const primaryHtml = CMDS.filter(c => PRIMARY.includes(c.type) && !c.id.includes("2")).map(c =>

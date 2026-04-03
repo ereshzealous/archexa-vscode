@@ -360,7 +360,6 @@ body {
 }
 
 /* Color-coded circle backgrounds per command type */
-.cmd-card[data-type="explain"] .cmd-card-icon  { background: rgba(210,153,34,.15); }
 .cmd-card[data-type="review"] .cmd-card-icon   { background: rgba(56,139,253,.15); }
 .cmd-card[data-type="diagnose"] .cmd-card-icon { background: rgba(248,81,73,.15); }
 .cmd-card[data-type="impact"] .cmd-card-icon   { background: rgba(188,140,255,.15); }
@@ -375,7 +374,6 @@ body {
 }
 
 /* Color-coded SVG icon colors per command type */
-.cmd-card[data-type="explain"] .cmd-card-icon svg  { color: var(--vscode-editorWarning-foreground); }
 .cmd-card[data-type="review"] .cmd-card-icon svg   { color: var(--vscode-textLink-foreground); }
 .cmd-card[data-type="diagnose"] .cmd-card-icon svg { color: var(--vscode-errorForeground); }
 .cmd-card[data-type="impact"] .cmd-card-icon svg   { color: var(--vscode-charts-purple, #bc8cff); }
@@ -396,7 +394,6 @@ body {
 }
 
 /* Title text inherits color from the card's data-type via these rules */
-.cmd-card[data-type="explain"] .cmd-card-title  { color: var(--vscode-editorWarning-foreground, #d29922); }
 .cmd-card[data-type="review"] .cmd-card-title   { color: var(--vscode-textLink-foreground); }
 .cmd-card[data-type="diagnose"] .cmd-card-title { color: var(--vscode-errorForeground); }
 .cmd-card[data-type="impact"] .cmd-card-title   { color: var(--vscode-charts-purple, #bc8cff); }
