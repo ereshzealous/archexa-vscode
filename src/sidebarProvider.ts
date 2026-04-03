@@ -540,7 +540,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         return { command: "review", cliCommand: "review", args: ["--changed"], label: "Review Changes", icon: "search" };
       }
       if (rest.startsWith("--")) return { command: "review", cliCommand: "review", args: rest.split(/\s+/), label: "Review", icon: "search" };
-      if (rest) return { command: "review", cliCommand: "review", args: ["--target", rest], label: `Review ${path.basename(rest)}`, icon: "search" };
+      if (rest) {
+        // Handle comma-separated file targets from chips
+        const files = rest.split(",").map(f => f.trim()).filter(Boolean);
+        const label = files.length > 1
+          ? `Review ${files.length} files`
+          : `Review ${path.basename(files[0])}`;
+        return { command: "review", cliCommand: "review", args: ["--target", rest], label, icon: "search" };
+      }
       const f = this.getCurrentFileRelPath();
       return f
         ? { command: "review", cliCommand: "review", args: ["--target", f], label: `Review ${path.basename(f)}`, icon: "search" }
@@ -554,7 +561,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const query = parts.slice(1).join(" ");
       const args = target ? ["--target", target] : [];
       if (query) args.push("--query", query);
-      return { command: "impact", cliCommand: "impact", args, label: `Impact ${target ? path.basename(target) : ""}`, icon: "zap" };
+      // Handle comma-separated file targets from chips
+      const targetFiles = target.split(",").filter(Boolean);
+      const impactLabel = targetFiles.length > 1
+        ? `Impact ${targetFiles.length} files`
+        : `Impact ${target ? path.basename(target) : ""}`;
+      return { command: "impact", cliCommand: "impact", args, label: impactLabel, icon: "zap" };
     }
     if (text.startsWith("/diagnose")) {
       const rest = text.slice(9).trim();
@@ -2040,10 +2052,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         if (e.key === "Escape") { slashMenu.style.display = "none"; return; }
       }
       if (e.key === "Tab" && currentIntent) { e.preventDefault(); sendMessage(); return; }
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isStreaming && chatInput.value.trim()) sendMessage(); }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isStreaming && (chatInput.value.trim() || fileChipsList.length > 0)) sendMessage(); }
     });
 
-    sendBtn.addEventListener("click", () => { if (!isStreaming && chatInput.value.trim()) sendMessage(); });
+    sendBtn.addEventListener("click", () => { if (!isStreaming && (chatInput.value.trim() || fileChipsList.length > 0)) sendMessage(); });
     cancelBtnEl.addEventListener("click", () => { vscodeApi.postMessage({ type: "cancel" }); });
 
     // ── Delegated clicks (file links, copy, save, details) ──
@@ -2075,13 +2087,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       // Reconstruct command from file chips + remaining input text
       let text = chatInput.value.trim();
       if (fileChipsList.length > 0) {
+        // Collect all chip file values directly from DOM as source of truth
+        const chipEls = fileChipsEl.querySelectorAll(".file-chip");
+        const chipFiles = [];
+        chipEls.forEach(function(el) { if (el.dataset.file) chipFiles.push(el.dataset.file); });
+        // Determine the active FILE_CMD from input
         const cmd = getActiveFileCommand();
-        if (cmd) {
-          const remaining = text.slice(cmd.length).trim();
-          // Combine chips and any remaining partial text
-          const allFiles = [...fileChipsList];
-          if (remaining && !remaining.startsWith("-")) allFiles.push(remaining);
-          text = cmd + " " + allFiles.join(",");
+        if (cmd && chipFiles.length > 0) {
+          // Chips ARE the files — only use chip values, not the active editor file
+          text = cmd + " " + chipFiles.join(",");
         }
       }
       vscodeApi.postMessage({ type: "send", text: text });
@@ -2483,6 +2497,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (!el) break;
           const status = el.querySelector(".msg-meta-status");
           if (status) status.textContent = "[" + msg.phase + "/" + msg.total + "] " + msg.label + (msg.detail ? " \\u2014 " + msg.detail : "");
+          // Update loading phase text
+          const loading = document.getElementById("loading-" + msg.id);
+          if (loading) {
+            const loadText = loading.querySelector(".loading-text");
+            if (loadText) loadText.textContent = "[" + msg.phase + "/" + msg.total + "] " + msg.label;
+          }
+          // Update header status
+          const headerSt = document.getElementById("chatHeaderStatus");
+          if (headerSt) headerSt.textContent = "[" + msg.phase + "/" + msg.total + "] " + msg.label;
           break;
         }
 
@@ -2544,17 +2567,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           div.innerHTML =
             '<div class="live-step" id="livestep-' + msg.id + '" style="display:none"></div>'
             + '<div id="findings-' + msg.id + '"></div>'
-            + '<div id="skeleton-' + msg.id + '" class="skeleton">'
-            + '<div class="skeleton-line" style="width:90%"></div>'
-            + '<div class="skeleton-line" style="width:70%;animation-delay:0.1s"></div>'
-            + '<div class="skeleton-line" style="width:95%;animation-delay:0.15s"></div>'
-            + '<div style="height:6px"></div>'
-            + '<div class="skeleton-line" style="width:80%;animation-delay:0.2s"></div>'
-            + '<div class="skeleton-line" style="width:60%;animation-delay:0.25s"></div>'
-            + '<div class="skeleton-line" style="width:85%;animation-delay:0.3s"></div>'
-            + '<div style="height:6px"></div>'
-            + '<div class="skeleton-line" style="width:75%;animation-delay:0.35s"></div>'
-            + '<div class="skeleton-line" style="width:55%;animation-delay:0.4s"></div>'
+            + '<div class="investigation-loading" id="loading-' + msg.id + '">'
+            + '<div class="loading-progress-bar"><div class="loading-progress-fill"></div></div>'
+            + '<div class="loading-phase"><span class="loading-spinner">\\u21BB</span><span class="loading-text">Scanning repository...</span></div>'
+            + '<div class="loading-steps" id="loadingsteps-' + msg.id + '"></div>'
             + '</div>'
             + '<div class="msg-content" id="content-' + msg.id + '" style="display:none"></div>'
             + '<div class="msg-toolbar" id="toolbar-' + msg.id + '" style="display:none">'
@@ -2574,6 +2590,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "agentLog": {
           const rich = parseLogLine(msg.line || "");
           if (!rich) break;
+          // Append steps to loading area (live tool calls during loading)
+          const loadingSteps = document.getElementById("loadingsteps-" + msg.id);
+          if (loadingSteps) {
+            const lstep = document.createElement("div");
+            lstep.className = "loading-step";
+            lstep.innerHTML = rich;
+            loadingSteps.appendChild(lstep);
+            // Keep only last 5 steps visible
+            while (loadingSteps.children.length > 5) loadingSteps.removeChild(loadingSteps.firstChild);
+          }
           const liveEl = document.getElementById("livestep-" + msg.id);
           if (liveEl && msg.line.includes("agent.tool name=")) {
             liveEl.style.display = "flex";
@@ -2607,8 +2633,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         }
 
         case "assistantChunk": {
-          const skel = document.getElementById("skeleton-" + msg.id);
-          if (skel) skel.style.display = "none";
+          const loading = document.getElementById("loading-" + msg.id);
+          if (loading) loading.style.display = "none";
           const content = document.getElementById("content-" + msg.id);
           if (content) { content.style.display = "block"; content.innerHTML = msg.html; }
           const live = document.getElementById("livestep-" + msg.id);
@@ -2621,8 +2647,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           const el = document.getElementById("msg-" + msg.id);
           if (!el) break;
           el.classList.remove("msg-streaming");
-          const skel = document.getElementById("skeleton-" + msg.id);
-          if (skel) skel.style.display = "none";
+          const loadingDone = document.getElementById("loading-" + msg.id);
+          if (loadingDone) loadingDone.style.display = "none";
           const content = document.getElementById("content-" + msg.id);
           if (content) content.style.display = "block";
           const live = document.getElementById("livestep-" + msg.id);
@@ -2662,8 +2688,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (!el) break;
           el.classList.remove("msg-streaming");
           el.classList.add("msg-error");
-          const skel = document.getElementById("skeleton-" + msg.id);
-          if (skel) skel.style.display = "none";
+          const loadingErr = document.getElementById("loading-" + msg.id);
+          if (loadingErr) loadingErr.style.display = "none";
           const live = document.getElementById("livestep-" + msg.id);
           if (live) live.style.display = "none";
           const content = document.getElementById("content-" + msg.id);
@@ -2681,8 +2707,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           const el = document.getElementById("msg-" + msg.id);
           if (!el) break;
           el.classList.remove("msg-streaming");
-          const skel = document.getElementById("skeleton-" + msg.id);
-          if (skel) skel.style.display = "none";
+          const loadingCancel = document.getElementById("loading-" + msg.id);
+          if (loadingCancel) loadingCancel.style.display = "none";
           const live = document.getElementById("livestep-" + msg.id);
           if (live) live.style.display = "none";
           // Update header status to Cancelled

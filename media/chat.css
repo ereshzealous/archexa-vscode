@@ -875,27 +875,57 @@ body {
   border-radius: 1px;
 }
 
-/* Shimmer skeleton */
-.skeleton {
-  background: transparent;
-  border: none;
+/* Investigation loading state */
+.investigation-loading {
   padding: 16px 4px;
-  overflow: hidden;
   width: 100%;
 }
-
-.skeleton-line {
-  height: 10px;
-  border-radius: 3px;
-  background: linear-gradient(
-    90deg,
-    var(--vscode-editor-lineHighlightBackground) 0%,
-    var(--vscode-editorGroup-border) 50%,
-    var(--vscode-editor-lineHighlightBackground) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.8s ease-in-out infinite;
-  margin-bottom: 7px;
+.loading-progress-bar {
+  height: 2px;
+  background: var(--vscode-editorGroup-border);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.loading-progress-fill {
+  height: 100%;
+  width: 30%;
+  background: var(--vscode-textLink-foreground);
+  border-radius: 1px;
+  animation: loadingPulse 2s ease-in-out infinite;
+}
+@keyframes loadingPulse {
+  0% { width: 10%; margin-left: 0; }
+  50% { width: 40%; margin-left: 30%; }
+  100% { width: 10%; margin-left: 90%; }
+}
+.loading-phase {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 8px;
+}
+.loading-spinner {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.loading-steps {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 10px;
+  color: var(--vscode-disabledForeground);
+}
+.loading-step {
+  padding: 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: fadeSlideUp 0.1s ease-out;
 }
 
 /* Error */
@@ -1215,11 +1245,6 @@ body {
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0; }
-}
-
-@keyframes shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
 }
 
 @keyframes dotPulse {
