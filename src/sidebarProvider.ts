@@ -1776,6 +1776,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       <div class="rf-hints"><kbd>Ctrl+Enter</kbd> send <kbd>Esc</kbd> back</div>
     </div>
 
+    <!-- Gist command form (Step 2) -->
+    <div id="gistForm" style="display:none">
+      <div class="gf-ready">\u25B6 Ready \u2014 scans the full codebase, no extra input needed.</div>
+      <button class="df-send-btn" id="gfSendBtn">Run Gist \u2192</button>
+      <div class="gf-optional">
+        <input type="text" class="rf-input" id="gfFocusInput" placeholder='Optional: type a focus area (e.g. "public API") or press Send now'/>
+      </div>
+    </div>
+
     <!-- Default input row -->
     <div id="defaultInputRow">
       <div id="fileChips" class="file-chips"></div>
@@ -2077,6 +2086,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     const reviewForm = document.getElementById("reviewForm");
     const diagnoseForm = document.getElementById("diagnoseForm");
+    const gistForm = document.getElementById("gistForm");
     const defaultInputRow = document.getElementById("defaultInputRow");
     let reviewMode = "files"; // "files" | "changed" | "branch"
     let rfFileList = []; // file chips in review form
@@ -2098,8 +2108,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       // Show command-specific form
       reviewForm.style.display = "none";
       diagnoseForm.style.display = "none";
+      gistForm.style.display = "none";
+      defaultInputRow.style.display = "none";
       if (type === "review") {
-        defaultInputRow.style.display = "none";
         reviewForm.style.display = "block";
         reviewMode = "files";
         rfFileList = [];
@@ -2107,10 +2118,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         renderRfFileChips();
         document.getElementById("rfFileInput").focus();
       } else if (type === "diagnose") {
-        defaultInputRow.style.display = "none";
         diagnoseForm.style.display = "block";
         document.getElementById("dfErrorText").value = "";
         document.getElementById("dfErrorText").focus();
+      } else if (type === "gist" || type === "analyze") {
+        gistForm.style.display = "block";
+        document.getElementById("gfSendBtn").textContent = type === "gist" ? "Run Gist \\u2192" : "Run Analyze \\u2192";
+        document.getElementById("gfFocusInput").value = "";
       } else {
         defaultInputRow.style.display = "block";
         chatInput.value = "";
@@ -2125,6 +2139,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       cmdChipArea.innerHTML = "";
       reviewForm.style.display = "none";
       diagnoseForm.style.display = "none";
+      gistForm.style.display = "none";
       defaultInputRow.style.display = "block";
       rfFileList = [];
       chatInput.value = "";
@@ -2239,6 +2254,22 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       if (!errorText) return;
       if (currentScreen === "home") showScreen("chat");
       vscodeApi.postMessage({ type: "send", text: "/diagnose " + errorText });
+      clearCmdChip();
+    }
+
+    // ── Gist/Analyze form handlers ──
+    document.getElementById("gfSendBtn").addEventListener("click", sendGistForm);
+    document.getElementById("gfFocusInput").addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { e.preventDefault(); sendGistForm(); }
+      if (e.key === "Escape") { e.preventDefault(); clearCmdChip(); }
+    });
+
+    function sendGistForm() {
+      if (currentScreen === "home") showScreen("chat");
+      const cmd = activeCmd || "/gist";
+      const focus = document.getElementById("gfFocusInput").value.trim();
+      const text = focus ? cmd + " " + focus : cmd;
+      vscodeApi.postMessage({ type: "send", text: text });
       clearCmdChip();
     }
 

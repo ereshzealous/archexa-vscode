@@ -1353,6 +1353,27 @@ body {
   border-color: var(--vscode-focusBorder);
 }
 
+/* ── Gist/Analyze form ──────────────────────────────── */
+
+.gf-ready {
+  background: rgba(63, 185, 80, 0.08);
+  border: 1px solid rgba(63, 185, 80, 0.2);
+  border-radius: 5px;
+  padding: 8px 10px;
+  font-size: 10.5px;
+  color: var(--vscode-terminal-ansiGreen);
+  margin-bottom: 8px;
+}
+
+.gf-optional {
+  margin-top: 4px;
+}
+
+.gf-optional .rf-input {
+  font-size: 10.5px;
+  color: var(--vscode-descriptionForeground);
+}
+
 /* ── Input row ──────────────────────────────────────── */
 
 .input-row {
