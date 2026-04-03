@@ -1776,6 +1776,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       <div class="rf-hints"><kbd>Ctrl+Enter</kbd> send <kbd>Esc</kbd> back</div>
     </div>
 
+    <!-- Impact command form (Step 2) -->
+    <div id="impactForm" style="display:none">
+      <div class="rf-label">What are you changing?</div>
+      <div id="ifFileChips" class="file-chips"></div>
+      <input type="text" class="rf-input" id="ifFileInput" placeholder="Add more files..." autocomplete="off"/>
+      <textarea class="df-textarea" id="ifDescText" style="min-height:60px" placeholder="Describe the change briefly... (optional)\ne.g. removing the subprocess approach, switching to REST API"></textarea>
+      <button class="df-send-btn" id="ifSendBtn" disabled>Trace impact \u2192</button>
+      <div class="rf-hints"><kbd>Enter</kbd> send <kbd>Esc</kbd> back</div>
+    </div>
+
     <!-- Gist command form (Step 2) -->
     <div id="gistForm" style="display:none">
       <div class="gf-ready">\u25B6 Ready \u2014 scans the full codebase, no extra input needed.</div>
@@ -2087,7 +2097,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const reviewForm = document.getElementById("reviewForm");
     const diagnoseForm = document.getElementById("diagnoseForm");
     const gistForm = document.getElementById("gistForm");
+    const impactForm = document.getElementById("impactForm");
     const defaultInputRow = document.getElementById("defaultInputRow");
+    let ifFileList = [];
     let reviewMode = "files"; // "files" | "changed" | "branch"
     let rfFileList = []; // file chips in review form
 
@@ -2109,6 +2121,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       reviewForm.style.display = "none";
       diagnoseForm.style.display = "none";
       gistForm.style.display = "none";
+      impactForm.style.display = "none";
       defaultInputRow.style.display = "none";
       if (type === "review") {
         reviewForm.style.display = "block";
@@ -2125,6 +2138,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         gistForm.style.display = "block";
         document.getElementById("gfSendBtn").textContent = type === "gist" ? "Run Gist \\u2192" : "Run Analyze \\u2192";
         document.getElementById("gfFocusInput").value = "";
+      } else if (type === "impact") {
+        impactForm.style.display = "block";
+        ifFileList = [];
+        document.getElementById("ifDescText").value = "";
+        document.getElementById("ifSendBtn").disabled = true;
+        renderIfFileChips();
+        document.getElementById("ifFileInput").focus();
+        // Auto-add active editor file
+        vscodeApi.postMessage({ type: "getContext" });
       } else {
         defaultInputRow.style.display = "block";
         chatInput.value = "";
@@ -2140,8 +2162,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       reviewForm.style.display = "none";
       diagnoseForm.style.display = "none";
       gistForm.style.display = "none";
+      impactForm.style.display = "none";
       defaultInputRow.style.display = "block";
       rfFileList = [];
+      ifFileList = [];
       chatInput.value = "";
       chatInput.placeholder = 'Ask anything... (e.g. "why is login failing?")';
       chatInput.focus();
@@ -2269,6 +2293,55 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const cmd = activeCmd || "/gist";
       const focus = document.getElementById("gfFocusInput").value.trim();
       const text = focus ? cmd + " " + focus : cmd;
+      vscodeApi.postMessage({ type: "send", text: text });
+      clearCmdChip();
+    }
+
+    // ── Impact form handlers ──
+    function renderIfFileChips() {
+      const container = document.getElementById("ifFileChips");
+      container.innerHTML = ifFileList.map(f =>
+        '<span class="file-chip" data-file="' + f + '">' + f.split("/").pop() + ' <span class="chip-x" data-file="' + f + '">\\u00D7</span></span>'
+      ).join("");
+      container.querySelectorAll(".chip-x").forEach(x => {
+        x.addEventListener("click", () => {
+          ifFileList = ifFileList.filter(ff => ff !== x.dataset.file);
+          renderIfFileChips();
+          document.getElementById("ifSendBtn").disabled = ifFileList.length === 0;
+        });
+      });
+      document.getElementById("ifSendBtn").disabled = ifFileList.length === 0;
+    }
+
+    document.getElementById("ifFileInput").addEventListener("keydown", function(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const val = this.value.trim();
+        if (val && !ifFileList.includes(val)) { ifFileList.push(val); renderIfFileChips(); }
+        this.value = "";
+      }
+      if (e.key === "Tab") { e.preventDefault(); if (this.value.trim().length >= 2) requestFileComplete(this.value.trim()); }
+      if (e.key === "Escape") { e.preventDefault(); clearCmdChip(); }
+    });
+
+    document.getElementById("ifFileInput").addEventListener("input", function() {
+      if (this.value.trim().length >= 2) requestFileComplete(this.value.trim());
+      else { slashMenu.style.display = "none"; slashMenu.dataset.mode = ""; }
+    });
+
+    document.getElementById("ifDescText").addEventListener("keydown", function(e) {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendImpactForm(); }
+      if (e.key === "Escape") { e.preventDefault(); clearCmdChip(); }
+    });
+
+    document.getElementById("ifSendBtn").addEventListener("click", sendImpactForm);
+
+    function sendImpactForm() {
+      if (ifFileList.length === 0) return;
+      if (currentScreen === "home") showScreen("chat");
+      let text = "/impact " + ifFileList.join(",");
+      const desc = document.getElementById("ifDescText").value.trim();
+      if (desc) text += " " + desc;
       vscodeApi.postMessage({ type: "send", text: text });
       clearCmdChip();
     }
@@ -2789,6 +2862,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             html += '<span style="color:var(--vscode-editorWarning-foreground);font-family:var(--vscode-editor-font-family)">' + msg.selection + '</span>';
           }
           contextStrip.innerHTML = html || '<span style="color:var(--vscode-disabledForeground)">No file open</span>';
+          // Auto-add active file to impact form if it just opened
+          if (activeCmd === "/impact" && msg.filePath && ifFileList.length === 0) {
+            ifFileList.push(msg.filePath);
+            renderIfFileChips();
+          }
           break;
         }
 
@@ -3011,11 +3089,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           slashMenu.querySelectorAll(".slash-item").forEach(el => {
             el.addEventListener("click", () => {
               const fp = el.dataset.filepath;
-              // Add to review form if active, otherwise to default file chips
+              // Add to active command form, or default file chips
               if (activeCmd === "/review" && reviewForm.style.display !== "none") {
                 if (!rfFileList.includes(fp)) { rfFileList.push(fp); renderRfFileChips(); }
                 document.getElementById("rfFileInput").value = "";
                 document.getElementById("rfFileInput").focus();
+              } else if (activeCmd === "/impact" && impactForm.style.display !== "none") {
+                if (!ifFileList.includes(fp)) { ifFileList.push(fp); renderIfFileChips(); }
+                document.getElementById("ifFileInput").value = "";
+                document.getElementById("ifFileInput").focus();
               } else {
                 const cmd = getActiveFileCommand();
                 if (cmd) { addFileChip(fp); chatInput.value = cmd + " "; }
