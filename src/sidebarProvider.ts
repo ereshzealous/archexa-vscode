@@ -1795,6 +1795,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       </div>
     </div>
 
+    <!-- Query command form (Step 2) -->
+    <div id="queryForm" style="display:none">
+      <textarea class="df-textarea" id="qfQueryText" style="min-height:80px" placeholder="Ask anything about your codebase...\n\ne.g.\nHow does authentication flow work end to end?\nWhere is the retry logic for HTTP calls?\nWhich tests cover the email sending code?"></textarea>
+      <button class="df-send-btn" id="qfSendBtn">Ask</button>
+      <div class="rf-hints"><kbd>Ctrl+Enter</kbd> send <kbd>Esc</kbd> back</div>
+    </div>
+
     <!-- Default input row -->
     <div id="defaultInputRow">
       <div id="fileChips" class="file-chips"></div>
@@ -2098,6 +2105,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const diagnoseForm = document.getElementById("diagnoseForm");
     const gistForm = document.getElementById("gistForm");
     const impactForm = document.getElementById("impactForm");
+    const queryForm = document.getElementById("queryForm");
     const defaultInputRow = document.getElementById("defaultInputRow");
     let ifFileList = [];
     let reviewMode = "files"; // "files" | "changed" | "branch"
@@ -2122,6 +2130,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       diagnoseForm.style.display = "none";
       gistForm.style.display = "none";
       impactForm.style.display = "none";
+      queryForm.style.display = "none";
       defaultInputRow.style.display = "none";
       if (type === "review") {
         reviewForm.style.display = "block";
@@ -2138,6 +2147,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         gistForm.style.display = "block";
         document.getElementById("gfSendBtn").textContent = type === "gist" ? "Run Gist \\u2192" : "Run Analyze \\u2192";
         document.getElementById("gfFocusInput").value = "";
+      } else if (type === "query") {
+        queryForm.style.display = "block";
+        document.getElementById("qfQueryText").value = "";
+        document.getElementById("qfQueryText").focus();
       } else if (type === "impact") {
         impactForm.style.display = "block";
         ifFileList = [];
@@ -2163,6 +2176,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       diagnoseForm.style.display = "none";
       gistForm.style.display = "none";
       impactForm.style.display = "none";
+      queryForm.style.display = "none";
       defaultInputRow.style.display = "block";
       rfFileList = [];
       ifFileList = [];
@@ -2343,6 +2357,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const desc = document.getElementById("ifDescText").value.trim();
       if (desc) text += " " + desc;
       vscodeApi.postMessage({ type: "send", text: text });
+      clearCmdChip();
+    }
+
+    // ── Query form handlers ──
+    document.getElementById("qfSendBtn").addEventListener("click", sendQueryForm);
+    document.getElementById("qfQueryText").addEventListener("keydown", function(e) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendQueryForm(); }
+      if (e.key === "Escape") { e.preventDefault(); clearCmdChip(); }
+    });
+
+    function sendQueryForm() {
+      const q = document.getElementById("qfQueryText").value.trim();
+      if (!q) return;
+      if (currentScreen === "home") showScreen("chat");
+      vscodeApi.postMessage({ type: "send", text: "/query " + q });
       clearCmdChip();
     }
 
