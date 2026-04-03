@@ -360,7 +360,6 @@ body {
 }
 
 /* Color-coded circle backgrounds per command type */
-.cmd-card[data-type="explain"] .cmd-card-icon  { background: rgba(210,153,34,.15); }
 .cmd-card[data-type="review"] .cmd-card-icon   { background: rgba(56,139,253,.15); }
 .cmd-card[data-type="diagnose"] .cmd-card-icon { background: rgba(248,81,73,.15); }
 .cmd-card[data-type="impact"] .cmd-card-icon   { background: rgba(188,140,255,.15); }
@@ -375,7 +374,6 @@ body {
 }
 
 /* Color-coded SVG icon colors per command type */
-.cmd-card[data-type="explain"] .cmd-card-icon svg  { color: var(--vscode-editorWarning-foreground); }
 .cmd-card[data-type="review"] .cmd-card-icon svg   { color: var(--vscode-textLink-foreground); }
 .cmd-card[data-type="diagnose"] .cmd-card-icon svg { color: var(--vscode-errorForeground); }
 .cmd-card[data-type="impact"] .cmd-card-icon svg   { color: var(--vscode-charts-purple, #bc8cff); }
@@ -396,7 +394,6 @@ body {
 }
 
 /* Title text inherits color from the card's data-type via these rules */
-.cmd-card[data-type="explain"] .cmd-card-title  { color: var(--vscode-editorWarning-foreground, #d29922); }
 .cmd-card[data-type="review"] .cmd-card-title   { color: var(--vscode-textLink-foreground); }
 .cmd-card[data-type="diagnose"] .cmd-card-title { color: var(--vscode-errorForeground); }
 .cmd-card[data-type="impact"] .cmd-card-title   { color: var(--vscode-charts-purple, #bc8cff); }
@@ -1231,6 +1228,245 @@ body {
 /* Exclusion pattern chips (settings) */
 .exclude-chip {
   color: var(--vscode-descriptionForeground);
+}
+
+/* ═══════════════════════════════════════════════════════
+   COMMAND WIZARD (two-step input)
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Slash menu group headers ─────────────────────────── */
+.slash-group-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--vscode-disabledForeground);
+  padding: 6px 10px 2px;
+  user-select: none;
+}
+
+.slash-menu-hints {
+  padding: 4px 10px 5px;
+  font-size: 9px;
+  color: var(--vscode-disabledForeground);
+  border-top: 1px solid var(--vscode-editorGroup-border);
+  font-family: var(--vscode-editor-font-family);
+}
+
+.slash-menu-hints kbd {
+  background: var(--vscode-editor-lineHighlightBackground);
+  border: 1px solid var(--vscode-editorGroup-border);
+  border-radius: 2px;
+  padding: 0 3px;
+  font-size: 8.5px;
+  color: var(--vscode-descriptionForeground);
+  margin: 0 1px;
+}
+
+/* ── Command chip ─────────────────────────────────────── */
+.cmd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  animation: fadeSlideUp 0.1s ease-out;
+}
+
+.cmd-chip .cmd-chip-icon { display: flex; align-items: center; }
+.cmd-chip .cmd-chip-icon svg { width: 12px; height: 12px; }
+
+.cmd-chip .cmd-chip-x {
+  cursor: pointer;
+  opacity: 0.5;
+  font-size: 13px;
+  line-height: 1;
+  margin-left: 2px;
+  transition: opacity 0.1s;
+}
+.cmd-chip .cmd-chip-x:hover { opacity: 1; }
+
+/* Color variants */
+.cmd-chip[data-type="review"] {
+  background: rgba(56,139,253,0.12);
+  color: var(--vscode-textLink-foreground);
+}
+.cmd-chip[data-type="diagnose"] {
+  background: rgba(248,81,73,0.12);
+  color: var(--vscode-errorForeground);
+}
+.cmd-chip[data-type="impact"] {
+  background: rgba(188,140,255,0.12);
+  color: var(--vscode-charts-purple, #bc8cff);
+}
+.cmd-chip[data-type="query"] {
+  background: rgba(56,139,253,0.12);
+  color: var(--vscode-textLink-foreground);
+}
+.cmd-chip[data-type="gist"] {
+  background: rgba(63,185,80,0.12);
+  color: var(--vscode-terminal-ansiGreen);
+}
+.cmd-chip[data-type="analyze"] {
+  background: rgba(188,140,255,0.12);
+  color: var(--vscode-charts-purple, #bc8cff);
+}
+
+/* ── Review pills ─────────────────────────────────────── */
+.review-pills {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.review-pill {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--vscode-editor-lineHighlightBackground);
+  border: 1px solid var(--vscode-editorGroup-border);
+  color: var(--vscode-descriptionForeground);
+  transition: all 0.12s;
+  user-select: none;
+}
+
+.review-pill:hover {
+  border-color: var(--vscode-textLink-foreground);
+  color: var(--vscode-editor-foreground);
+}
+
+.review-pill.selected {
+  background: rgba(56,139,253,0.15);
+  border-color: var(--vscode-textLink-foreground);
+  color: var(--vscode-textLink-foreground);
+}
+
+/* ── Command form elements ────────────────────────────── */
+.cmd-form-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--vscode-editor-foreground);
+  margin-bottom: 6px;
+}
+
+.cmd-form-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-editorGroup-border));
+  border-radius: 5px;
+  padding: 7px 9px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 11px;
+  outline: none;
+  resize: vertical;
+  line-height: 1.5;
+  min-height: 100px;
+  transition: border-color 0.12s;
+}
+
+.cmd-form-textarea:focus { border-color: var(--vscode-focusBorder); }
+.cmd-form-textarea::placeholder { color: var(--vscode-input-placeholderForeground); white-space: pre-line; }
+
+.cmd-form-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-editorGroup-border));
+  border-radius: 5px;
+  padding: 6px 9px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.12s;
+}
+
+.cmd-form-input:focus { border-color: var(--vscode-focusBorder); }
+.cmd-form-input::placeholder { color: var(--vscode-input-placeholderForeground); }
+
+.cmd-form-btn {
+  width: 100%;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  border-radius: 5px;
+  padding: 7px 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: background 0.12s;
+}
+
+.cmd-form-btn:hover { background: var(--vscode-button-hoverBackground); }
+
+.cmd-form-info {
+  background: rgba(56,139,253,0.06);
+  border-left: 3px solid var(--vscode-textLink-foreground);
+  border-radius: 0 4px 4px 0;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cmd-form-help {
+  font-size: 10px;
+  color: var(--vscode-disabledForeground);
+  margin-top: 4px;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.cmd-form-hint {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 9px;
+  color: var(--vscode-disabledForeground);
+  padding: 0 2px;
+}
+
+.cmd-form-hint kbd {
+  background: var(--vscode-editor-lineHighlightBackground);
+  border: 1px solid var(--vscode-editorGroup-border);
+  border-radius: 2px;
+  padding: 0 3px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 8.5px;
+  color: var(--vscode-descriptionForeground);
+  margin: 0 1px;
+}
+
+/* ── File chips inside command forms ──────────────────── */
+.cmd-form-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.cmd-form-chips:empty { display: none; }
+
+.cmd-form-ready {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(63,185,80,0.06);
+  border: 1px solid rgba(63,185,80,0.2);
+  border-radius: 5px;
+  margin-bottom: 8px;
+  font-size: 10.5px;
+  color: var(--vscode-terminal-ansiGreen);
 }
 
 /* ═══════════════════════════════════════════════════════

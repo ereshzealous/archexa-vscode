@@ -66,7 +66,7 @@ function detectIntent(text: string): string | null {
   const s = text.toLowerCase();
   if (/\berror\b|exception|failing|crash|why is|traceback|not work|decode|typeerror|stacktrace/.test(s)) return "diagnose";
   if (/\breview\b|check|securi|bug|vulnerab|\bsql\b|jwt|audit|issues?\b/.test(s)) return "review";
-  if (/\bexplain\b|what (does|is)|how does|understand|purpose|walk me/.test(s)) return "explain";
+  if (/\bexplain\b|what (does|is)|how does|understand|purpose|walk me/.test(s)) return "query";
   if (/\bimpact\b|what breaks|what happens if|change|affect|downstream/.test(s)) return "impact";
   return null;
 }
@@ -539,14 +539,27 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       if (rest === "--changed" || rest === "changes" || rest === "changed") {
         return { command: "review", cliCommand: "review", args: ["--changed"], label: "Review Changes", icon: "search" };
       }
+      if (rest.startsWith("--branch ")) {
+        const branchRest = rest.slice(9).trim();
+        // May contain --focus at the end
+        const focusMatch = branchRest.match(/^(.+?)\s+--focus\s+(.+)$/);
+        if (focusMatch) {
+          return { command: "review", cliCommand: "review", args: ["--branch", focusMatch[1].trim(), "--focus", focusMatch[2].trim()], label: "Review Branch", icon: "search" };
+        }
+        return { command: "review", cliCommand: "review", args: ["--branch", branchRest], label: "Review Branch", icon: "search" };
+      }
       if (rest.startsWith("--")) return { command: "review", cliCommand: "review", args: rest.split(/\s+/), label: "Review", icon: "search" };
       if (rest) {
-        // Handle comma-separated file targets from chips
-        const files = rest.split(",").map(f => f.trim()).filter(Boolean);
+        // Handle comma-separated file targets from chips, possibly with --focus
+        const focusMatch = rest.match(/^(.+?)\s+--focus\s+(.+)$/);
+        const filePart = focusMatch ? focusMatch[1].trim() : rest;
+        const files = filePart.split(",").map(f => f.trim()).filter(Boolean);
         const label = files.length > 1
           ? `Review ${files.length} files`
           : `Review ${path.basename(files[0])}`;
-        return { command: "review", cliCommand: "review", args: ["--target", rest], label, icon: "search" };
+        const args = ["--target", filePart];
+        if (focusMatch) args.push("--focus", focusMatch[2].trim());
+        return { command: "review", cliCommand: "review", args, label, icon: "search" };
       }
       const f = this.getCurrentFileRelPath();
       return f
@@ -574,8 +587,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         ? { command: "diagnose", cliCommand: "diagnose", args: ["--error", rest.slice(0, 3000)], label: "Diagnose", icon: "bug" }
         : { command: "diagnose", cliCommand: "diagnose", args: [], label: "Diagnose", icon: "bug" };
     }
-    if (text.startsWith("/gist")) return { command: "gist", cliCommand: "gist", args: [], label: "Gist", icon: "book" };
-    if (text.startsWith("/analyze")) return { command: "analyze", cliCommand: "analyze", args: [], label: "Analyze", icon: "graph" };
+    if (text.startsWith("/gist")) {
+      const rest = text.slice(5).trim();
+      const args: string[] = [];
+      if (rest) args.push("--focus", rest);
+      return { command: "gist", cliCommand: "gist", args, label: "Gist", icon: "book" };
+    }
+    if (text.startsWith("/analyze")) {
+      const rest = text.slice(8).trim();
+      const args: string[] = [];
+      if (rest) args.push("--focus", rest);
+      return { command: "analyze", cliCommand: "analyze", args, label: "Analyze", icon: "graph" };
+    }
     if (text.startsWith("/query")) {
       const rest = text.slice(6).trim();
       return { command: "query", cliCommand: "query", args: ["--query", rest || text], label: "Query", icon: "comment" };
@@ -1738,16 +1761,26 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   <div class="chat-input-area" id="inputArea">
     <div class="context-strip" id="contextStrip"></div>
+
+    <!-- Slash menu (Step 1) -->
+    <div id="slashMenu" class="slash-menu" style="display:none"></div>
+
+    <!-- Intent badge -->
     <div id="intentBadge" style="display:none"></div>
-    <div id="slashMenu" style="display:none" class="slash-menu"></div>
-    <div id="fileChips" class="file-chips"></div>
-    <div class="input-row">
-      <textarea id="chatInput" rows="1" placeholder="Ask a follow-up or start new."></textarea>
-      <button id="sendBtn">Send</button>
-      <button id="cancelBtn">Cancel</button>
-    </div>
-    <div class="input-hints">
-      <span><kbd>Enter</kbd> send <kbd>Shift+Enter</kbd> new line <kbd>/</kbd> commands</span>
+
+    <!-- Command form (Step 2) - hidden by default -->
+    <div id="commandForm" style="display:none"></div>
+
+    <!-- Default input (Step 1 / natural text) -->
+    <div id="defaultInput">
+      <div class="input-row">
+        <textarea id="chatInput" rows="1" placeholder='Ask anything... (e.g. "why is login failing?")'></textarea>
+        <button id="sendBtn">Send</button>
+        <button id="cancelBtn">Cancel</button>
+      </div>
+      <div class="input-hints">
+        <span><kbd>Enter</kbd> send <kbd>Shift+Enter</kbd> new line <kbd>/</kbd> commands</span>
+      </div>
     </div>
   </div>
 
@@ -1776,13 +1809,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       // Input area visible on home + chat, hidden on settings
       inputArea.style.display = (name === "settings") ? "none" : "block";
       if (name === "home") renderHistory();
-      // Clear file chips when switching screens
-      clearFileChips();
+      // Exit command mode when switching screens
+      if (inputMode === "command") exitCommandMode();
     }
 
     // ── SVG codicons (16x16, currentColor, VS Code native style) ──
     const ICONS = {
-      explain:  '<svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 1a5 5 0 0 0-3 9v2a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2a5 5 0 0 0-3-9zM6 14h4v1H6z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
       review:   '<svg width="14" height="14" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/><line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
       diagnose: '<svg width="14" height="14" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/><line x1="8" y1="5" x2="8" y2="9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.8" fill="currentColor"/></svg>',
       impact:   '<svg width="14" height="14" viewBox="0 0 16 16"><path d="M9 1L4 9h4l-1 6 6-8H9l1-6z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>',
@@ -1792,31 +1824,29 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     };
 
     const CMDS = [
-      { id:"explain",  type:"explain",  slash:"/explain",           args:"<fn>",       desc:"Understand any function, file, or pattern",   what:"Plain-English \\u00B7 risks \\u00B7 dependencies" },
-      { id:"review",   type:"review",   slash:"/review",            args:"<file>",     desc:"Find bugs, security issues, risky patterns",  what:"Findings first \\u00B7 then explanation \\u00B7 editor squiggles" },
-      { id:"review2",  type:"review",   slash:"/review --changed",  args:"",           desc:"Review uncommitted changes",                  what:"Review your git changes" },
-      { id:"diagnose", type:"diagnose", slash:"/diagnose",          args:"<error>",    desc:"Trace any error to its root cause",           what:"Call chain first \\u00B7 root cause \\u00B7 fix" },
-      { id:"impact",   type:"impact",   slash:"/impact",            args:"<file>",     desc:"What breaks if this changes?",                what:"Trace callers and consumers" },
-      { id:"query",    type:"query",    slash:"/query",             args:"<question>", desc:"Ask anything about your codebase",             what:"Deep investigation with citations" },
-      { id:"gist",     type:"gist",     slash:"/gist",              args:"",           desc:"Quick codebase overview",                     what:"Fast overview of everything" },
-      { id:"analyze",  type:"analyze",  slash:"/analyze",           args:"",           desc:"Full architecture documentation",             what:"Comprehensive architecture doc" },
+      { id:"review",   type:"review",   slash:"/review",   group:"investigate", desc:"Find bugs, security issues, risky patterns",  what:"Findings first \\u00B7 then explanation \\u00B7 editor squiggles" },
+      { id:"diagnose", type:"diagnose", slash:"/diagnose", group:"investigate", desc:"Trace any error to its root cause",           what:"Call chain first \\u00B7 root cause \\u00B7 fix" },
+      { id:"impact",   type:"impact",   slash:"/impact",   group:"investigate", desc:"What breaks if this changes?",                what:"Trace callers and consumers" },
+      { id:"query",    type:"query",    slash:"/query",    group:"investigate", desc:"Ask anything about your codebase",             what:"Deep investigation with citations" },
+      { id:"gist",     type:"gist",     slash:"/gist",     group:"summarise",   desc:"Quick codebase overview",                     what:"Fast overview of everything" },
+      { id:"analyze",  type:"analyze",  slash:"/analyze",  group:"summarise",   desc:"Full architecture documentation",             what:"Comprehensive architecture doc" },
     ];
 
     function detectIntent(t) {
       const s = t.toLowerCase();
       if (/\\berror\\b|exception|failing|crash|why is|traceback|not work|decode|typeerror/.test(s)) return { id:"diagnose", label:"Diagnose", icon:ICONS.diagnose };
       if (/\\breview\\b|check|securi|bug|vulnerab|\\bsql\\b|jwt|audit|issues?/.test(s)) return { id:"review", label:"Review", icon:ICONS.review };
-      if (/explain|what (does|is)|how does|understand|purpose/.test(s)) return { id:"explain", label:"Explain", icon:ICONS.explain };
+      if (/explain|what (does|is)|how does|understand|purpose/.test(s)) return { id:"query", label:"Query", icon:ICONS.query };
       if (/impact|what breaks|what happens if|change|affect/.test(s)) return { id:"impact", label:"Impact", icon:ICONS.impact };
       return null;
     }
 
     // ── Build home command cards ──
-    const PRIMARY = ["explain", "review", "diagnose"];
+    const PRIMARY = ["review", "diagnose"];
     const SECONDARY = ["impact", "query", "gist", "analyze"];
 
     // Primary: full cards with icon, title, description, subtitle
-    const primaryHtml = CMDS.filter(c => PRIMARY.includes(c.type) && !c.id.includes("2")).map(c =>
+    const primaryHtml = CMDS.filter(c => PRIMARY.includes(c.type)).map(c =>
       '<div class="cmd-card" data-slash="' + c.slash + '" data-type="' + c.type + '">'
       + '<div class="cmd-card-icon">' + (ICONS[c.type] || "") + '</div>'
       + '<div class="cmd-card-body">'
@@ -1849,9 +1879,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     document.querySelectorAll(".cmd-card, .cmd-row").forEach(el => {
       el.addEventListener("click", () => {
         const slash = el.dataset.slash;
-        chatInput.value = slash + " ";
-        chatInput.focus();
-        updateSlashMenu();
+        const cmdId = slash.replace("/", "");
+        enterCommandMode(cmdId);
       });
     });
 
@@ -1871,94 +1900,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       vscodeApi.postMessage({ type: "cancelRun" });
     });
 
+    // ── Command wizard state ──
+    let inputMode = "default"; // "default" | "command"
+    let selectedCommand = null; // null | "review" | "diagnose" | "impact" | "query" | "gist" | "analyze"
+    let reviewMode = null; // null | "files" | "changed" | "branch"
+    let cmdFileChips = []; // file chips for command forms
+    const defaultInput = document.getElementById("defaultInput");
+    const commandForm = document.getElementById("commandForm");
+
     // ── File autocomplete state ──
     let fileCompleteTimer = null;
-    let fileMenuIdx = -1;
-    const FILE_CMDS = ["/review", "/impact", "/diagnose"];
-
-    // ── File chips state ──
-    const fileChipsEl = document.getElementById("fileChips");
-    let fileChipsList = [];
-
-    function addFileChip(filePath) {
-      filePath = filePath.trim();
-      if (!filePath || fileChipsList.includes(filePath)) return;
-      fileChipsList.push(filePath);
-      renderFileChips();
-    }
-
-    function removeFileChip(filePath) {
-      fileChipsList = fileChipsList.filter(f => f !== filePath);
-      renderFileChips();
-    }
-
-    function renderFileChips() {
-      fileChipsEl.innerHTML = fileChipsList.map(f =>
-        '<span class="file-chip" data-file="' + f + '">' + f + ' <span class="chip-x" data-file="' + f + '">\\u00D7</span></span>'
-      ).join("");
-      fileChipsEl.querySelectorAll(".chip-x").forEach(x => {
-        x.addEventListener("click", (e) => {
-          e.stopPropagation();
-          removeFileChip(x.dataset.file);
-        });
-      });
-    }
-
-    function clearFileChips() {
-      fileChipsList = [];
-      fileChipsEl.innerHTML = "";
-    }
-
-    function getActiveFileCommand() {
-      const val = chatInput.value;
-      for (const cmd of FILE_CMDS) {
-        if (val.startsWith(cmd + " ") || val === cmd) return cmd;
-      }
-      return null;
-    }
-
-    function tryExtractFileChip() {
-      const cmd = getActiveFileCommand();
-      if (!cmd) return;
-      const rest = chatInput.value.slice(cmd.length + 1);
-      // Check if user typed a comma after a file path
-      if (rest.endsWith(",")) {
-        const path = rest.slice(0, -1).trim();
-        if (path && !path.startsWith("-")) {
-          // Could be comma-separated: extract the last segment
-          const lastComma = path.lastIndexOf(",");
-          const segment = lastComma >= 0 ? path.slice(lastComma + 1).trim() : path.trim();
-          if (segment) {
-            addFileChip(segment);
-            // Also add any previous segments that weren't chipped
-            if (lastComma >= 0) {
-              path.slice(0, lastComma).split(",").forEach(s => {
-                s = s.trim();
-                if (s) addFileChip(s);
-              });
-            }
-            chatInput.value = cmd + " ";
-          }
-        }
-      }
-    }
-
-    function getFilePrefix() {
-      const val = chatInput.value;
-      for (const cmd of FILE_CMDS) {
-        if (val.startsWith(cmd + " ")) {
-          const rest = val.slice(cmd.length + 1);
-          if (!rest || rest.startsWith("-")) return null;
-          // Support comma-separated: get the last segment after comma
-          const lastComma = rest.lastIndexOf(",");
-          const current = lastComma >= 0 ? rest.slice(lastComma + 1) : rest;
-          // Don't trigger if current segment has spaces (it's a description, not a path)
-          if (!current || current.includes(" ")) return null;
-          return current;
-        }
-      }
-      return null;
-    }
 
     function requestFileComplete(prefix) {
       if (fileCompleteTimer) clearTimeout(fileCompleteTimer);
@@ -1967,24 +1918,267 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }, 150);
     }
 
+    // ── Command form file chips ──
+    function addCmdFileChip(filePath) {
+      filePath = filePath.trim();
+      if (!filePath || cmdFileChips.includes(filePath)) return;
+      cmdFileChips.push(filePath);
+      renderCmdFileChips();
+    }
+
+    function removeCmdFileChip(filePath) {
+      cmdFileChips = cmdFileChips.filter(f => f !== filePath);
+      renderCmdFileChips();
+    }
+
+    function renderCmdFileChips() {
+      const container = document.getElementById("cmdFormChips");
+      if (!container) return;
+      container.innerHTML = cmdFileChips.map(f =>
+        '<span class="file-chip" data-file="' + f + '">' + f + ' <span class="chip-x" data-file="' + f + '">\\u00D7</span></span>'
+      ).join("");
+      container.querySelectorAll(".chip-x").forEach(x => {
+        x.addEventListener("click", (e) => {
+          e.stopPropagation();
+          removeCmdFileChip(x.dataset.file);
+        });
+      });
+    }
+
+    // ── Enter command mode ──
+    function enterCommandMode(cmdId) {
+      inputMode = "command";
+      selectedCommand = cmdId;
+      reviewMode = cmdId === "review" ? "files" : null;
+      cmdFileChips = [];
+      defaultInput.style.display = "none";
+      commandForm.style.display = "block";
+      slashMenu.style.display = "none";
+      intentBadge.style.display = "none";
+      chatInput.value = "";
+      renderCommandForm();
+    }
+
+    // ── Exit command mode ──
+    function exitCommandMode() {
+      inputMode = "default";
+      selectedCommand = null;
+      reviewMode = null;
+      cmdFileChips = [];
+      commandForm.style.display = "none";
+      commandForm.innerHTML = "";
+      defaultInput.style.display = "block";
+      chatInput.value = "";
+      chatInput.focus();
+    }
+
+    // ── Render the appropriate command form ──
+    function renderCommandForm() {
+      const cmdName = selectedCommand.charAt(0).toUpperCase() + selectedCommand.slice(1);
+      let html = '<div class="cmd-chip" data-type="' + selectedCommand + '">'
+        + '<span class="cmd-chip-icon">' + (ICONS[selectedCommand] || "") + '</span>'
+        + '<span>' + cmdName + '</span>'
+        + '<span class="cmd-chip-x" id="cmdChipClose">\\u00D7</span>'
+        + '</div>';
+
+      switch (selectedCommand) {
+        case "review":
+          html += '<div class="cmd-form-label">What to review?</div>'
+            + '<div class="review-pills">'
+            + '<span class="review-pill' + (reviewMode === "files" ? " selected" : "") + '" data-mode="files">Files</span>'
+            + '<span class="review-pill' + (reviewMode === "changed" ? " selected" : "") + '" data-mode="changed">Uncommitted changes</span>'
+            + '<span class="review-pill' + (reviewMode === "branch" ? " selected" : "") + '" data-mode="branch">Branch diff</span>'
+            + '</div>';
+          if (reviewMode === "files") {
+            html += '<div class="cmd-form-chips" id="cmdFormChips"></div>'
+              + '<input class="cmd-form-input" id="cmdFileInput" type="text" placeholder="Add files... type a name and press Enter" autocomplete="off"/>';
+          } else if (reviewMode === "changed") {
+            html += '<div class="cmd-form-ready">\\u25B6 Ready to review uncommitted changes</div>';
+          } else if (reviewMode === "branch") {
+            html += '<input class="cmd-form-input" id="cmdBranchInput" type="text" placeholder="Branch ref (e.g. origin/main..HEAD)"/>';
+          }
+          html += '<input class="cmd-form-input" id="cmdFocusInput" type="text" placeholder="Optional: any specific focus (e.g. security, performance)" style="margin-top:8px"/>'
+            + '<div class="cmd-form-hint"><span><kbd>Enter</kbd> send \\u00B7 <kbd>Esc</kbd> back to commands</span></div>';
+          break;
+
+        case "diagnose":
+          html += '<textarea class="cmd-form-textarea" id="cmdDiagnoseText" placeholder="Paste error message or stack trace here...\\n\\ne.g.\\nTraceback (most recent call last):\\n  File \\"src/foo.py\\", line 111\\nexc = await asyncio..."></textarea>'
+            + '<div class="cmd-form-help">Archexa will trace the exact file and line, read surrounding code, and find the root cause.</div>'
+            + '<button class="cmd-form-btn" id="cmdFormSubmit">Diagnose</button>'
+            + '<div class="cmd-form-hint"><span><kbd>Ctrl+Enter</kbd> send \\u00B7 <kbd>Esc</kbd> back</span></div>';
+          break;
+
+        case "impact":
+          html += '<div class="cmd-form-label">What are you changing?</div>'
+            + '<div class="cmd-form-chips" id="cmdFormChips"></div>'
+            + '<input class="cmd-form-input" id="cmdFileInput" type="text" placeholder="Add more files..." autocomplete="off"/>'
+            + '<textarea class="cmd-form-textarea" id="cmdImpactDesc" style="min-height:60px;margin-top:8px" placeholder="Describe the change briefly... (optional)\\ne.g. removing the subprocess approach, switching to REST API"></textarea>'
+            + '<button class="cmd-form-btn" id="cmdFormSubmit">Trace impact \\u2192</button>';
+          break;
+
+        case "query":
+          html += '<textarea class="cmd-form-textarea" id="cmdQueryText" placeholder="Ask anything about your codebase...\\n\\ne.g.\\nHow does authentication flow work end to end?"></textarea>'
+            + '<button class="cmd-form-btn" id="cmdFormSubmit">Ask</button>';
+          break;
+
+        case "gist":
+          html += '<div class="cmd-form-info">\\u25B6 Ready \\u2014 scans the full codebase, no extra input needed.</div>'
+            + '<input class="cmd-form-input" id="cmdGistFocus" type="text" placeholder="Optional: type a focus area (e.g. \'public API\') or press Send now"/>'
+            + '<button class="cmd-form-btn" id="cmdFormSubmit">Run Gist \\u2192</button>';
+          break;
+
+        case "analyze":
+          html += '<div class="cmd-form-info">\\u25B6 Ready \\u2014 generates full architecture documentation.</div>'
+            + '<input class="cmd-form-input" id="cmdAnalyzeFocus" type="text" placeholder="Optional: type a focus area (e.g. \'data flow\') or press Send now"/>'
+            + '<button class="cmd-form-btn" id="cmdFormSubmit">Run Analyze \\u2192</button>';
+          break;
+      }
+
+      commandForm.innerHTML = html;
+
+      // Bind close chip
+      const closeBtn = document.getElementById("cmdChipClose");
+      if (closeBtn) closeBtn.addEventListener("click", exitCommandMode);
+
+      // Bind review pills
+      commandForm.querySelectorAll(".review-pill").forEach(pill => {
+        pill.addEventListener("click", () => {
+          reviewMode = pill.dataset.mode;
+          renderCommandForm();
+        });
+      });
+
+      // Bind submit button
+      const submitBtn = document.getElementById("cmdFormSubmit");
+      if (submitBtn) submitBtn.addEventListener("click", sendCommandForm);
+
+      // Bind file input autocomplete
+      const fileInput = document.getElementById("cmdFileInput");
+      if (fileInput) {
+        fileInput.addEventListener("input", () => {
+          const val = fileInput.value.trim();
+          if (val.length >= 2) {
+            requestFileComplete(val);
+          } else if (slashMenu.dataset.mode === "file") {
+            slashMenu.style.display = "none";
+            slashMenu.dataset.mode = "";
+          }
+        });
+        fileInput.addEventListener("keydown", (e) => {
+          if (slashMenu.style.display !== "none" && slashMenu.dataset.mode === "file") {
+            const items = slashMenu.querySelectorAll(".slash-item");
+            if (e.key === "ArrowDown") { e.preventDefault(); slashIdx = Math.min(slashIdx + 1, items.length - 1); highlightSlash(items); return; }
+            if (e.key === "ArrowUp") { e.preventDefault(); slashIdx = Math.max(slashIdx - 1, 0); highlightSlash(items); return; }
+            if ((e.key === "Enter" || e.key === "Tab") && items[slashIdx]) {
+              e.preventDefault();
+              items[slashIdx].click();
+              return;
+            }
+            if (e.key === "Escape") { slashMenu.style.display = "none"; slashMenu.dataset.mode = ""; return; }
+          }
+          if (e.key === "Enter") {
+            e.preventDefault();
+            const val = fileInput.value.trim();
+            if (val) {
+              addCmdFileChip(val);
+              fileInput.value = "";
+              slashMenu.style.display = "none";
+              slashMenu.dataset.mode = "";
+            }
+          }
+        });
+        fileInput.focus();
+      }
+
+      // Bind keyboard on textareas in the form
+      const cmdTextarea = commandForm.querySelector(".cmd-form-textarea");
+      if (cmdTextarea) {
+        cmdTextarea.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); sendCommandForm(); return; }
+          if (e.key === "Escape") { e.preventDefault(); exitCommandMode(); }
+        });
+        cmdTextarea.focus();
+      }
+
+      // Bind keyboard on inputs
+      commandForm.querySelectorAll(".cmd-form-input").forEach(inp => {
+        inp.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") { e.preventDefault(); exitCommandMode(); return; }
+          // Enter on non-file inputs sends the form (except file input which adds chips)
+          if (e.key === "Enter" && inp.id !== "cmdFileInput") { e.preventDefault(); sendCommandForm(); }
+        });
+      });
+
+      // Render existing file chips
+      renderCmdFileChips();
+
+      // Impact: auto-add active editor file
+      if (selectedCommand === "impact") {
+        vscodeApi.postMessage({ type: "getContext" });
+      }
+    }
+
+    // ── Send command form ──
+    function sendCommandForm() {
+      let text = "";
+      switch (selectedCommand) {
+        case "review": {
+          if (reviewMode === "files") {
+            const files = cmdFileChips.join(",");
+            text = files ? "/review " + files : "/review";
+          } else if (reviewMode === "changed") {
+            text = "/review --changed";
+          } else if (reviewMode === "branch") {
+            const ref = (document.getElementById("cmdBranchInput") || {}).value || "";
+            text = "/review --branch " + ref.trim();
+          }
+          const focus = (document.getElementById("cmdFocusInput") || {}).value || "";
+          if (focus.trim()) text += " --focus " + focus.trim();
+          break;
+        }
+        case "diagnose": {
+          const err = (document.getElementById("cmdDiagnoseText") || {}).value || "";
+          text = "/diagnose " + err.trim();
+          break;
+        }
+        case "impact": {
+          const files = cmdFileChips.join(",");
+          const desc = (document.getElementById("cmdImpactDesc") || {}).value || "";
+          text = "/impact";
+          if (files) text += " " + files;
+          if (desc.trim()) text += " " + desc.trim();
+          break;
+        }
+        case "query": {
+          const q = (document.getElementById("cmdQueryText") || {}).value || "";
+          text = "/query " + q.trim();
+          break;
+        }
+        case "gist": {
+          const focus = (document.getElementById("cmdGistFocus") || {}).value || "";
+          text = focus.trim() ? "/gist " + focus.trim() : "/gist";
+          break;
+        }
+        case "analyze": {
+          const focus = (document.getElementById("cmdAnalyzeFocus") || {}).value || "";
+          text = focus.trim() ? "/analyze " + focus.trim() : "/analyze";
+          break;
+        }
+      }
+      text = text.trim();
+      if (!text) return;
+      // Switch to chat screen
+      if (currentScreen === "home") showScreen("chat");
+      vscodeApi.postMessage({ type: "send", text: text });
+      exitCommandMode();
+    }
+
     // ── Auto-resize textarea ──
     chatInput.addEventListener("input", () => {
       chatInput.style.height = "auto";
       chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
       updateSlashMenu();
       updateIntent();
-      // File chip extraction on comma
-      tryExtractFileChip();
-      // File autocomplete
-      const fp = getFilePrefix();
-      if (fp && fp.length >= 2) {
-        requestFileComplete(fp);
-      } else {
-        if (slashMenu.style.display !== "none" && slashMenu.dataset.mode === "file") {
-          slashMenu.style.display = "none";
-          slashMenu.dataset.mode = "";
-        }
-      }
     });
 
     function updateSlashMenu() {
@@ -1993,13 +2187,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const filter = val.toLowerCase();
       const matches = CMDS.filter(c => c.slash.startsWith(filter));
       if (!matches.length) { slashMenu.style.display = "none"; return; }
-      slashMenu.innerHTML = matches.map((c, i) =>
-        '<div class="slash-item' + (i === 0 ? ' active' : '') + '" data-cmd="' + c.slash + '">'
-        + '<span class="slash-icon">' + (ICONS[c.type] || "") + '</span>'
-        + '<span class="slash-cmd">' + c.slash + '</span>'
-        + (c.args ? ' <span class="slash-args">' + c.args + '</span>' : '')
-        + '<span class="slash-desc">' + c.desc + '</span></div>'
-      ).join("");
+      // Build grouped menu
+      let html = "";
+      let lastGroup = "";
+      let itemIdx = 0;
+      for (const c of matches) {
+        if (c.group !== lastGroup) {
+          lastGroup = c.group;
+          html += '<div class="slash-group-label">' + c.group.toUpperCase() + '</div>';
+        }
+        html += '<div class="slash-item' + (itemIdx === 0 ? ' active' : '') + '" data-cmd="' + c.id + '">'
+          + '<span class="slash-icon">' + (ICONS[c.type] || "") + '</span>'
+          + '<span class="slash-cmd">' + c.slash + '</span>'
+          + '<span class="slash-desc">' + c.desc + '</span></div>';
+        itemIdx++;
+      }
+      html += '<div class="slash-menu-hints"><kbd>\\u2191\\u2193</kbd> navigate \\u00B7 <kbd>Enter</kbd> select \\u00B7 <kbd>Esc</kbd> dismiss</div>';
+      slashMenu.innerHTML = html;
+      slashMenu.dataset.mode = "slash";
       slashIdx = 0;
       slashMenu.style.display = "block";
       slashMenu.querySelectorAll(".slash-item").forEach(el => {
@@ -2025,9 +2230,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     function selectSlash(el) {
-      chatInput.value = el.dataset.cmd + " ";
-      chatInput.focus();
+      const cmdId = el.dataset.cmd;
       slashMenu.style.display = "none";
+      enterCommandMode(cmdId);
     }
 
     function highlightSlash(items) {
@@ -2042,20 +2247,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         if (e.key === "ArrowUp") { e.preventDefault(); slashIdx = Math.max(slashIdx - 1, 0); highlightSlash(items); return; }
         if ((e.key === "Enter" || e.key === "Tab") && items[slashIdx]) {
           e.preventDefault();
-          if (slashMenu.dataset.mode === "file") {
-            items[slashIdx].click(); // triggers the file click handler
-          } else {
-            selectSlash(items[slashIdx]);
-          }
+          selectSlash(items[slashIdx]);
           return;
         }
         if (e.key === "Escape") { slashMenu.style.display = "none"; return; }
       }
       if (e.key === "Tab" && currentIntent) { e.preventDefault(); sendMessage(); return; }
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isStreaming && (chatInput.value.trim() || fileChipsList.length > 0)) sendMessage(); }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isStreaming && chatInput.value.trim()) sendMessage(); }
     });
 
-    sendBtn.addEventListener("click", () => { if (!isStreaming && (chatInput.value.trim() || fileChipsList.length > 0)) sendMessage(); });
+    sendBtn.addEventListener("click", () => { if (!isStreaming && chatInput.value.trim()) sendMessage(); });
     cancelBtnEl.addEventListener("click", () => { vscodeApi.postMessage({ type: "cancel" }); });
 
     // ── Delegated clicks (file links, copy, save, details) ──
@@ -2084,32 +2285,22 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     function sendMessage() {
       // Switch to chat screen on first message
       if (currentScreen === "home") showScreen("chat");
-      // Collect file chips from DOM (source of truth, not the JS array)
-      const chipEls = fileChipsEl.querySelectorAll(".file-chip");
-      const chipFiles = [];
-      chipEls.forEach(function(el) { if (el.dataset && el.dataset.file) chipFiles.push(el.dataset.file); });
       let text = chatInput.value.trim();
-      if (chipFiles.length > 0) {
-        // Find which slash command is in the input
-        let cmd = "";
-        for (const c of FILE_CMDS) {
-          if (text.startsWith(c)) { cmd = c; break; }
-        }
-        if (cmd) {
-          // ALL files come from chips — ignore anything else in input
-          text = cmd + " " + chipFiles.join(",");
-        }
-      }
       vscodeApi.postMessage({ type: "send", text: text });
       chatInput.value = "";
       chatInput.style.height = "auto";
       slashMenu.style.display = "none";
       intentBadge.style.display = "none";
-      clearFileChips();
     }
 
     function setStreaming(on) {
       isStreaming = on;
+      // Ensure default input is visible during streaming (command form was dismissed on send)
+      if (on && inputMode === "command") {
+        exitCommandMode();
+      }
+      defaultInput.style.display = "block";
+      commandForm.style.display = "none";
       sendBtn.style.display = on ? "none" : "block";
       cancelBtnEl.style.display = on ? "block" : "none";
       sendBtn.disabled = on;
@@ -2524,6 +2715,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             html += '<span style="color:var(--vscode-editorWarning-foreground);font-family:var(--vscode-editor-font-family)">' + msg.selection + '</span>';
           }
           contextStrip.innerHTML = html || '<span style="color:var(--vscode-disabledForeground)">No file open</span>';
+          // Auto-add active file as chip in impact command form
+          if (inputMode === "command" && selectedCommand === "impact" && msg.file) {
+            addCmdFileChip(msg.file);
+          }
           break;
         }
 
@@ -2731,7 +2926,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           const files = msg.files || [];
           if (!files.length) { if (slashMenu.dataset.mode === "file") { slashMenu.style.display = "none"; slashMenu.dataset.mode = ""; } break; }
           slashMenu.dataset.mode = "file";
-          fileMenuIdx = 0;
+          slashIdx = 0;
           slashMenu.innerHTML = files.map((f, i) => {
             const parts = f.split("/");
             const name = parts.pop();
@@ -2746,14 +2941,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           slashMenu.querySelectorAll(".slash-item").forEach(el => {
             el.addEventListener("click", () => {
               const fp = el.dataset.filepath;
-              const cmd = getActiveFileCommand();
-              if (cmd) {
-                addFileChip(fp);
-                chatInput.value = cmd + " ";
-              }
+              addCmdFileChip(fp);
+              const fileInput = document.getElementById("cmdFileInput");
+              if (fileInput) { fileInput.value = ""; fileInput.focus(); }
               slashMenu.style.display = "none";
               slashMenu.dataset.mode = "";
-              chatInput.focus();
             });
           });
           break;
