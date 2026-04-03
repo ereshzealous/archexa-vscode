@@ -276,7 +276,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this.postMessage({ type: "userMessage", text: displayText });
     this.postMessage({
       type: "assistantStart", id: msgId,
-      label, command,
+      label, command, text: displayText,
     });
 
     this.tokenSource = new vscode.CancellationTokenSource();
@@ -456,7 +456,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this.postMessage({ type: "userMessage", text });
     this.postMessage({
       type: "assistantStart", id: msgId,
-      label: parsed.label, command: parsed.command,
+      label: parsed.label, command: parsed.command, text,
     });
 
     this.tokenSource = new vscode.CancellationTokenSource();
@@ -1252,6 +1252,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     /* ── Chat screen layout ── */
     #screen-chat {
       height: 100vh;
+      overflow: hidden;
+    }
+    #screen-chat .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
 
     /* ── Settings screen ── */
@@ -1297,6 +1303,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
       <!-- Hero + Commands -->
       <div class="home-hero">
+        <div class="home-hero-icon"><svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="20" width="4" height="10" rx="1" fill="currentColor" opacity="0.3"/><rect x="10" y="14" width="4" height="16" rx="1" fill="currentColor" opacity="0.5"/><rect x="16" y="8" width="4" height="22" rx="1" fill="currentColor" opacity="0.7"/><rect x="22" y="2" width="4" height="28" rx="1" fill="currentColor" opacity="0.9"/><line x1="3" y1="30" x2="28" y2="30" stroke="currentColor" stroke-width="1.5" opacity="0.4"/></svg></div>
         <h2>Understand your code</h2>
         <p>Independent investigations. No memory. Just accurate answers.</p>
       </div>
@@ -1319,10 +1326,28 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
        SCREEN: CHAT (messages + streaming)
        ═══════════════════════════════════════════════════════ -->
   <div id="screen-chat" class="screen">
-    <div class="chat-nav">
-      <button class="chat-nav-btn" id="chatHomeBtn">\u2190 Home</button>
-      <span class="chat-nav-spacer"></span>
+    <div class="chat-header" id="chatHeader">
+      <button class="chat-home-btn" id="chatHomeBtn">Home</button>
+      <span class="chat-header-title">ARCHEXA</span>
+      <span class="chat-header-cmd" id="chatHeaderCmd"></span>
+      <span class="chat-header-status" id="chatHeaderStatus"></span>
+      <span style="flex:1"></span>
+      <button class="chat-gear-btn" id="chatGearBtn">\u2699</button>
+    </div>
+    <div class="chat-breadcrumb" id="chatBreadcrumb">
+      <span class="bc-home" id="bcHome">Home</span>
+      <span class="bc-sep">\u203A</span>
+      <span class="bc-current" id="bcCurrent"></span>
+      <span style="flex:1"></span>
       <button class="chat-nav-btn" id="chatNewBtn">+ New</button>
+    </div>
+    <div class="chat-query-card" id="chatQueryCard" style="display:none">
+      <div class="qc-header">
+        <span class="qc-icon" id="qcIcon"></span>
+        <span class="qc-type" id="qcType"></span>
+      </div>
+      <div class="qc-command" id="qcCommand"></div>
+      <div class="qc-stats" id="qcStats" style="display:none"></div>
     </div>
     <div class="chat-messages" id="messages"></div>
   </div>
@@ -1667,7 +1692,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     <div id="intentBadge" style="display:none"></div>
     <div id="slashMenu" style="display:none" class="slash-menu"></div>
     <div class="input-row">
-      <textarea id="chatInput" rows="1" placeholder='Ask anything... (e.g. "why is login failing?")'></textarea>
+      <textarea id="chatInput" rows="1" placeholder="Ask a follow-up or start new."></textarea>
       <button id="sendBtn">Send</button>
       <button id="cancelBtn">Cancel</button>
     </div>
@@ -1690,6 +1715,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     let slashIdx = -1;
     let currentIntent = null;
     let currentScreen = "home";
+    let chatFindingCount = 0;
 
     // ── Screen switching ──
     function showScreen(name) {
@@ -1998,6 +2024,19 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     });
     document.getElementById("chatNewBtn").addEventListener("click", () => {
       document.getElementById("messages").innerHTML = "";
+      document.getElementById("chatQueryCard").style.display = "none";
+      document.getElementById("chatHeaderCmd").textContent = "";
+      document.getElementById("chatHeaderStatus").textContent = "";
+      document.getElementById("chatHeaderStatus").className = "chat-header-status";
+      document.getElementById("bcCurrent").textContent = "";
+      document.getElementById("qcStats").style.display = "none";
+      chatFindingCount = 0;
+      showScreen("home");
+    });
+    document.getElementById("chatGearBtn").addEventListener("click", () => {
+      showScreen("settings");
+    });
+    document.getElementById("bcHome").addEventListener("click", () => {
       showScreen("home");
     });
 
@@ -2293,26 +2332,43 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "userMessage": {
           // Switch to chat screen if not already
           if (currentScreen !== "chat") showScreen("chat");
-          const div = document.createElement("div");
-          div.className = "msg-user";
-          div.innerHTML = '<div class="msg-bubble">' + msg.text.replace(/</g,"&lt;").replace(/>/g,"&gt;") + '</div>';
-          messagesEl.appendChild(div);
-          scrollToBottom();
+          // User message is now displayed in the query card instead of a bubble
           break;
         }
 
         case "assistantStart": {
           setStreaming(true);
+          chatFindingCount = 0;
+          const cmdType = msg.command || "query";
+          const cmdLabel = (msg.label || "Query").toUpperCase();
+          const cmdText = (msg.text || "").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+          const cmdPreview = cmdText.length > 40 ? cmdText.slice(0, 40) + "..." : cmdText;
+
+          // Populate chat header
+          const headerCmd = document.getElementById("chatHeaderCmd");
+          headerCmd.textContent = msg.label || "Query";
+          headerCmd.dataset.type = cmdType;
+          const headerStatus = document.getElementById("chatHeaderStatus");
+          headerStatus.textContent = "investigating...";
+          headerStatus.className = "chat-header-status investigating";
+
+          // Populate breadcrumb
+          document.getElementById("bcCurrent").innerHTML = (msg.label || "Query") + ' <span class="bc-detail">\\u00B7 ' + cmdPreview + '</span>';
+
+          // Populate query card
+          const qcIcon = document.getElementById("qcIcon");
+          qcIcon.innerHTML = ICONS[cmdType] || ICONS.query;
+          document.getElementById("qcType").textContent = cmdLabel;
+          document.getElementById("qcCommand").textContent = msg.text || "";
+          document.getElementById("chatQueryCard").style.display = "block";
+          document.getElementById("qcStats").style.display = "none";
+
           const div = document.createElement("div");
           div.className = "msg-assistant msg-streaming";
           div.id = "msg-" + msg.id;
-          div.dataset.command = msg.command || "query";
+          div.dataset.command = cmdType;
           div.innerHTML =
-            '<div class="msg-meta">'
-            + '<span class="msg-meta-badge" style="background:rgba(56,139,253,0.12);color:var(--vscode-textLink-foreground)">' + (msg.label || "Query") + '</span>'
-            + '<span class="msg-meta-status" style="animation:pulse 1.2s ease-in-out infinite;color:var(--vscode-textLink-foreground)">\\u25CF investigating</span>'
-            + '</div>'
-            + '<div class="live-step" id="livestep-' + msg.id + '" style="display:none"></div>'
+            '<div class="live-step" id="livestep-' + msg.id + '" style="display:none"></div>'
             + '<div id="findings-' + msg.id + '"></div>'
             + '<div id="skeleton-' + msg.id + '" class="skeleton">'
             + '<div class="skeleton-line" style="width:90%"></div>'
@@ -2362,6 +2418,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         }
 
         case "finding": {
+          chatFindingCount++;
           const f = msg.finding;
           const container = document.getElementById("findings-" + msg.id);
           if (!container) break;
@@ -2396,12 +2453,29 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (content) content.style.display = "block";
           const live = document.getElementById("livestep-" + msg.id);
           if (live) live.style.display = "none";
-          const status = el.querySelector(".msg-meta-status");
-          if (status) {
-            status.style.animation = "none";
-            status.style.color = "var(--vscode-terminal-ansiGreen)";
-            status.textContent = "\\u2713 Done" + (msg.durationMs > 0 ? " \\u00B7 " + (msg.durationMs/1000).toFixed(1) + "s" : "");
+
+          // Update header status to DONE
+          const headerStatus = document.getElementById("chatHeaderStatus");
+          headerStatus.textContent = "DONE";
+          headerStatus.className = "chat-header-status done";
+
+          // Update query card stats
+          const statsEl = document.getElementById("qcStats");
+          let statsHtml = "";
+          if (msg.durationMs > 0) statsHtml += "\\u2713 " + (msg.durationMs/1000).toFixed(1) + "s";
+          const totalTokens = (msg.promptTokens || 0) + (msg.completionTokens || 0);
+          if (totalTokens > 0) {
+            const tokenStr = totalTokens >= 1000 ? (totalTokens/1000).toFixed(1) + "k" : totalTokens.toString();
+            statsHtml += (statsHtml ? "  " : "") + tokenStr + " tokens";
           }
+          if (chatFindingCount > 0) {
+            statsHtml += (statsHtml ? "  " : "") + chatFindingCount + " finding" + (chatFindingCount !== 1 ? "s" : "");
+          }
+          if (statsHtml) {
+            statsEl.innerHTML = statsHtml;
+            statsEl.style.display = "block";
+          }
+
           const toolbar = document.getElementById("toolbar-" + msg.id);
           if (toolbar) toolbar.style.display = "flex";
           setStreaming(false);
@@ -2420,8 +2494,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (live) live.style.display = "none";
           const content = document.getElementById("content-" + msg.id);
           if (content) { content.style.display = "block"; content.textContent = msg.message; }
-          const status = el.querySelector(".msg-meta-status");
-          if (status) { status.style.animation = "none"; status.style.color = "var(--vscode-errorForeground)"; status.textContent = "\\u2717 Error"; }
+          // Update header status to Error
+          const errHeaderStatus = document.getElementById("chatHeaderStatus");
+          errHeaderStatus.textContent = "ERROR";
+          errHeaderStatus.className = "chat-header-status error";
           setStreaming(false);
           scrollToBottom();
           break;
@@ -2435,8 +2511,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (skel) skel.style.display = "none";
           const live = document.getElementById("livestep-" + msg.id);
           if (live) live.style.display = "none";
-          const status = el.querySelector(".msg-meta-status");
-          if (status) { status.style.animation = "none"; status.style.color = "var(--vscode-descriptionForeground)"; status.textContent = "Cancelled"; }
+          // Update header status to Cancelled
+          const cancelHeaderStatus = document.getElementById("chatHeaderStatus");
+          cancelHeaderStatus.textContent = "CANCELLED";
+          cancelHeaderStatus.className = "chat-header-status cancelled";
           setStreaming(false);
           break;
         }

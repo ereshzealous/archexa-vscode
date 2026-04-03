@@ -23,34 +23,239 @@ body {
    MESSAGES AREA
    ═══════════════════════════════════════════════════════ */
 
-/* ── Chat navigation bar ─────────────────────────── */
+/* ── Chat header bar (sticky) ─────────────────────── */
 
-.chat-nav {
+.chat-header {
   display: flex;
   align-items: center;
-  padding: 4px 10px;
+  gap: 8px;
+  padding: 7px 12px;
   border-bottom: 1px solid var(--vscode-editorGroup-border);
   background: var(--vscode-sideBar-background);
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 12;
 }
 
-.chat-nav-btn {
+.chat-home-btn {
   background: none;
   border: 1px solid var(--vscode-editorGroup-border);
   color: var(--vscode-descriptionForeground);
   border-radius: 4px;
   padding: 2px 8px;
-  font-size: 10.5px;
+  font-size: 10px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: all 0.12s;
 }
 
-.chat-nav-btn:hover {
-  background: var(--vscode-list-hoverBackground);
+.chat-home-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
   color: var(--vscode-editor-foreground);
 }
 
-.chat-nav-spacer { flex: 1; }
+.chat-header-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--vscode-descriptionForeground);
+  text-transform: uppercase;
+}
+
+.chat-header-cmd {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: capitalize;
+  background: rgba(56,139,253,0.12);
+  color: var(--vscode-textLink-foreground);
+}
+
+.chat-header-cmd:empty { display: none; }
+
+.chat-header-cmd[data-type="diagnose"] {
+  background: rgba(248,81,73,0.12);
+  color: var(--vscode-errorForeground);
+}
+.chat-header-cmd[data-type="impact"],
+.chat-header-cmd[data-type="analyze"] {
+  background: rgba(188,140,255,0.12);
+  color: var(--vscode-charts-purple, #bc8cff);
+}
+.chat-header-cmd[data-type="gist"] {
+  background: rgba(63,185,80,0.12);
+  color: var(--vscode-terminal-ansiGreen);
+}
+
+.chat-header-status {
+  font-size: 10px;
+  font-family: var(--vscode-editor-font-family);
+  color: var(--vscode-descriptionForeground);
+}
+
+.chat-header-status:empty { display: none; }
+
+.chat-header-status.investigating {
+  color: var(--vscode-textLink-foreground);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.chat-header-status.done {
+  color: var(--vscode-terminal-ansiGreen);
+  font-weight: 700;
+  animation: none;
+}
+
+.chat-header-status.error {
+  color: var(--vscode-errorForeground);
+  font-weight: 700;
+  animation: none;
+}
+
+.chat-header-status.cancelled {
+  color: var(--vscode-descriptionForeground);
+  font-weight: 600;
+  animation: none;
+}
+
+.chat-gear-btn {
+  background: none;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.12s, background 0.12s;
+  line-height: 1;
+}
+
+.chat-gear-btn:hover {
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+/* ── Chat breadcrumb (sticky) ──────────────────────── */
+
+.chat-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--vscode-editorGroup-border);
+  background: var(--vscode-editor-background);
+  flex-shrink: 0;
+  position: sticky;
+  top: 33px;
+  z-index: 11;
+  font-size: 10.5px;
+}
+
+.bc-home {
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+  font-weight: 600;
+  transition: opacity 0.1s;
+}
+
+.bc-home:hover { opacity: 0.8; }
+
+.bc-sep {
+  color: var(--vscode-disabledForeground);
+  font-size: 11px;
+}
+
+.bc-current {
+  color: var(--vscode-editor-foreground);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bc-detail {
+  color: var(--vscode-descriptionForeground);
+  font-weight: 400;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 10px;
+}
+
+.chat-nav-btn {
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid var(--vscode-editorGroup-border);
+  color: var(--vscode-button-secondaryForeground);
+  border-radius: 5px;
+  padding: 2px 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+  flex-shrink: 0;
+}
+
+.chat-nav-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+/* ── Chat query card (sticky) ──────────────────────── */
+
+.chat-query-card {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--vscode-editor-lineHighlightBackground);
+  border-bottom: 1px solid var(--vscode-editorGroup-border);
+  flex-shrink: 0;
+  position: sticky;
+  top: 62px;
+  z-index: 10;
+}
+
+.qc-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.qc-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--vscode-textLink-foreground);
+}
+
+.qc-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.qc-type {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--vscode-editor-foreground);
+}
+
+.qc-command {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 10.5px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
+  word-break: break-all;
+  padding-left: 19px;
+}
+
+.qc-stats {
+  padding-left: 19px;
+  margin-top: 5px;
+  font-size: 10px;
+  font-family: var(--vscode-editor-font-family);
+  color: var(--vscode-terminal-ansiGreen);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
 
 .chat-messages {
   flex: 1;
