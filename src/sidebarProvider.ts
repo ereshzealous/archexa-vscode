@@ -2106,7 +2106,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isStreaming && (chatInput.value.trim() || fileChipsList.length > 0 || activeCmd)) sendMessage(); }
     });
 
-    sendBtn.addEventListener("click", () => { if (!isStreaming && (chatInput.value.trim() || fileChipsList.length > 0)) sendMessage(); });
+    sendBtn.addEventListener("click", () => { if (!isStreaming && (chatInput.value.trim() || fileChipsList.length > 0 || activeCmd)) sendMessage(); });
     cancelBtnEl.addEventListener("click", () => { vscodeApi.postMessage({ type: "cancel" }); });
 
     // ── Delegated clicks (file links, copy, save, details) ──
