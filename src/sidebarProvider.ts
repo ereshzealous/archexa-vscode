@@ -2002,7 +2002,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           break;
 
         case "diagnose":
-          html += '<textarea class="cmd-form-textarea" id="cmdDiagnoseText" placeholder="Paste error message or stack trace here...\\n\\ne.g.\\nTraceback (most recent call last):\\n  File \\"src/foo.py\\", line 111\\nexc = await asyncio..."></textarea>'
+          html += '<textarea class="cmd-form-textarea" id="cmdDiagnoseText" placeholder="Paste error message or stack trace here..."></textarea>'
             + '<div class="cmd-form-help">Archexa will trace the exact file and line, read surrounding code, and find the root cause.</div>'
             + '<button class="cmd-form-btn" id="cmdFormSubmit">Diagnose</button>'
             + '<div class="cmd-form-hint"><span><kbd>Ctrl+Enter</kbd> send \\u00B7 <kbd>Esc</kbd> back</span></div>';
