@@ -148,6 +148,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       case "cancel":
         this.cancelCurrentRun();
         break;
+      case "refreshHistory":
+        this.refresh();
+        break;
       case "openFile":
         if (typeof msg.file === "string") void this.openFileAtLine(msg.file, (msg.line as number) ?? 1);
         break;
@@ -1840,7 +1843,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       if (el) el.classList.add("active");
       // Input area visible on home + chat, hidden on settings
       inputArea.style.display = (name === "settings") ? "none" : "block";
-      if (name === "home") renderHistory();
+      if (name === "home") { renderHistory(); vscodeApi.postMessage({ type: "refreshHistory" }); }
       // Clear file chips when switching screens
       clearFileChips();
     }
