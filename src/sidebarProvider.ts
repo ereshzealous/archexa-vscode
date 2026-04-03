@@ -1842,8 +1842,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     // ── Build home command cards ──
-    const PRIMARY = ["review", "diagnose"];
-    const SECONDARY = ["impact", "query", "gist", "analyze"];
+    const PRIMARY = ["review", "diagnose", "impact"];
+    const SECONDARY = ["query", "gist", "analyze"];
 
     // Primary: full cards with icon, title, description, subtitle
     const primaryHtml = CMDS.filter(c => PRIMARY.includes(c.type)).map(c =>
@@ -1875,7 +1875,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this.innerHTML = (open ? "\\u25B6" : "\\u25BE") + " More actions";
     });
 
-    // Click handlers for all cards and rows
+    // Click handlers for all cards and rows — stay on home, show command form in input area
     document.querySelectorAll(".cmd-card, .cmd-row").forEach(el => {
       el.addEventListener("click", () => {
         const slash = el.dataset.slash;
