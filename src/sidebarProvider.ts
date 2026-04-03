@@ -1907,13 +1907,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this.innerHTML = (open ? "\\u25B6" : "\\u25BE") + " More actions";
     });
 
-    // Click handlers for all cards and rows
+    // Click handlers for all cards and rows — open Step 2 form
     document.querySelectorAll(".cmd-card, .cmd-row").forEach(el => {
       el.addEventListener("click", () => {
-        const slash = el.dataset.slash;
-        chatInput.value = slash + " ";
-        chatInput.focus();
-        updateSlashMenu();
+        // Create a fake slash menu item element with the right data attributes
+        const fakeEl = { dataset: { cmd: el.dataset.slash, type: el.dataset.type } };
+        selectSlash(fakeEl);
       });
     });
 
