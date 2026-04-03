@@ -254,6 +254,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this.refresh();
   }
 
+  /** Update an existing history entry's markdown (used when run completes) */
+  private updateHistoryEntry(id: string, markdown: string): void {
+    const entries = this.ctx.workspaceState.get<HistoryEntry[]>("archexa.history", []);
+    const entry = entries.find(e => e.id === id);
+    if (entry) {
+      entry.markdown = markdown;
+      void this.ctx.workspaceState.update("archexa.history", entries);
+      this.refresh();
+    }
+  }
+
   clearHistory(): void {
     void this.ctx.workspaceState.update("archexa.history", []);
     this.refresh();
@@ -286,6 +297,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this.services.statusBar.setRunning(label, this.tokenSource);
     this.streamBuffer = "";
     this.logLines.set(msgId, []);
+
+    // Add "running" history entry immediately
+    const validCmds2 = ["diagnose", "review", "query", "impact", "gist", "analyze"] as const;
+    const histCmd = validCmds2.includes(command as typeof validCmds2[number])
+      ? command as typeof validCmds2[number] : "query" as const;
+    this.addToHistory({
+      id: msgId, cmd: histCmd,
+      title: label,
+      timestamp: Date.now(), markdown: "",
+    });
 
     try {
       const result = await this.services.bridge.run({
@@ -324,15 +345,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this.postMessage({ type: "assistantDone", id: msgId, durationMs: result.durationMs });
       this.services.statusBar.setDone(`${label} complete`);
 
-      // History
-      const validCmds = ["diagnose", "review", "query", "impact", "gist", "analyze"] as const;
-      const cmd = validCmds.includes(command as typeof validCmds[number])
-        ? command as typeof validCmds[number] : "query" as const;
-      this.addToHistory({
-        id: crypto.randomUUID(), cmd,
-        title: `${label}`,
-        timestamp: Date.now(), markdown: this.streamBuffer,
-      });
+      // Update the "running" history entry with final markdown
+      this.updateHistoryEntry(msgId, this.streamBuffer);
     } catch (err: unknown) {
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
       if (this.tokenSource?.token.isCancellationRequested) {
@@ -467,6 +481,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this.streamBuffer = "";
     this.logLines.set(msgId, []);
 
+    // Add "running" entry to history immediately so it appears on home screen
+    const validCmds = ["diagnose", "review", "query", "impact", "gist", "analyze"] as const;
+    const historyCmd = validCmds.includes(parsed.cliCommand as typeof validCmds[number])
+      ? parsed.cliCommand as typeof validCmds[number] : "query" as const;
+    const historyId = msgId; // use msgId so we can update it later
+    this.addToHistory({
+      id: historyId, cmd: historyCmd,
+      title: `${parsed.label} \u2014 ${text.slice(0, 48)}`,
+      timestamp: Date.now(), markdown: "",
+    });
+
     try {
       const result = await this.services.bridge.run({
         command: parsed.cliCommand,
@@ -502,15 +527,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this.postMessage({ type: "assistantDone", id: msgId, durationMs: result.durationMs });
       this.services.statusBar.setDone(`${parsed.label} complete`);
 
-      // History
-      const validCmds = ["diagnose", "review", "query", "impact", "gist", "analyze"] as const;
-      const cmd = validCmds.includes(parsed.cliCommand as typeof validCmds[number])
-        ? parsed.cliCommand as typeof validCmds[number] : "query" as const;
-      this.addToHistory({
-        id: crypto.randomUUID(), cmd,
-        title: `${parsed.label} \u2014 ${text.slice(0, 48)}`,
-        timestamp: Date.now(), markdown: this.streamBuffer,
-      });
+      // Update the "running" history entry with the final markdown
+      this.updateHistoryEntry(historyId, this.streamBuffer);
     } catch (err: unknown) {
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
       if (this.tokenSource?.token.isCancellationRequested) {
