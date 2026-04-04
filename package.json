@@ -2,7 +2,7 @@
   "name": "archexa",
   "displayName": "Archexa (Beta)",
   "description": "AI-powered codebase intelligence — diagnose errors, review code, query architecture, trace impact",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "EreshGorantla",
   "icon": "media/icon.png",
   "engines": {
