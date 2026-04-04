@@ -34,6 +34,7 @@ const ALLOWED_REDIRECT_HOSTS = new Set([
   "api.github.com",
   "objects.githubusercontent.com",
   "github-releases.githubusercontent.com",
+  "release-assets.githubusercontent.com",
   "raw.githubusercontent.com",
 ]);
 
