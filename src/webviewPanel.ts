@@ -2,30 +2,9 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { marked } from "marked";
 import { getNonce } from "./utils/platform.js";
+import { linkifyFileRefs } from "./utils/html.js";
 
 type CommandType = "diagnose" | "review" | "query" | "impact" | "gist" | "analyze" | "explain";
-
-/** Known source file extensions for file:line linkification */
-const FILE_EXTS = "py|ts|tsx|js|jsx|go|java|rs|rb|cs|kt|cpp|c|h|hpp|php|yaml|yml|json|md|toml|cfg|ini|sh|bash|sql|html|css|scss|xml|proto|graphql|tf|hcl";
-
-/**
- * Post-process rendered HTML to make file:line references clickable.
- * Matches patterns like `src/foo.py:42` or `api/auth.py:7`.
- * Avoids false positives like version strings (node:14), timestamps, or port numbers.
- */
-function linkifyFileRefs(html: string): string {
-  // Match: optional backtick, path with at least one segment containing a known extension, colon, line number, optional backtick
-  const pattern = new RegExp(
-    `(?<!\\/\\/)(?:^|(?<=[ \\t(>"'\`]))` +
-    `([\\w./@-]+\\.(?:${FILE_EXTS})):(\\d+)` +
-    `(?=[ \\t)<"'\`,;]|$)`,
-    "gm"
-  );
-  return html.replace(pattern, (_match, filePath: string, line: string) => {
-    const escaped = filePath.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    return `<a class="file-link" data-file="${escaped}" data-line="${line}" title="Open ${escaped}:${line}">${escaped}:${line}</a>`;
-  });
-}
 
 const COMMAND_LABELS: Record<CommandType, string> = {
   diagnose: "Diagnose",
@@ -130,10 +109,13 @@ export class ArchexaWebviewPanel {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
+    // Adaptive debounce: increase interval as buffer grows to avoid O(n²) re-parsing
+    const bufLen = this.buffer.length;
+    const interval = bufLen < 5_000 ? 80 : bufLen < 20_000 ? 200 : bufLen < 100_000 ? 500 : 1000;
     this.debounceTimer = setTimeout(() => {
       const html = linkifyFileRefs(marked.parse(this.buffer) as string);
       this.panel.webview.postMessage({ type: "chunk", html });
-    }, 80);
+    }, interval);
   }
 
   updateProgress(
@@ -320,6 +302,8 @@ export class ArchexaWebviewPanel {
   <span id="cursor"></span>
 
   <script nonce="${nonce}">
+    function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+
     const vscodeApi = acquireVsCodeApi();
     const contentEl = document.getElementById("content");
     const spinnerEl = document.getElementById("spinner");
@@ -330,9 +314,8 @@ export class ArchexaWebviewPanel {
     let rawMarkdown = "";
     let userScrolledUp = false;
 
-    contentEl.addEventListener("scroll", () => {
-      const el = contentEl;
-      userScrolledUp = el.scrollTop + el.clientHeight < el.scrollHeight - 100;
+    window.addEventListener("scroll", () => {
+      userScrolledUp = (window.innerHeight + window.scrollY) < document.body.scrollHeight - 100;
     });
 
     window.addEventListener("message", (event) => {

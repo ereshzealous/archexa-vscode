@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
+import * as crypto from "crypto";
 import * as https from "https";
-import * as http from "http";
 import * as fs from "fs";
 import * as path from "path";
 import { Logger } from "./utils/logger.js";
@@ -26,6 +26,15 @@ const PLATFORM_ASSET: Record<string, string> = {
   "linux-arm64":   "archexa-linux-arm64",
   "win32-x64":     "archexa-windows-x86_64.exe",
 };
+
+/** Only follow redirects to these hosts (GitHub CDN) */
+const ALLOWED_REDIRECT_HOSTS = new Set([
+  "github.com",
+  "api.github.com",
+  "objects.githubusercontent.com",
+  "github-releases.githubusercontent.com",
+  "raw.githubusercontent.com",
+]);
 
 interface GitHubRelease {
   tag_name: string;
@@ -139,14 +148,39 @@ export class BinaryManager {
       `-> Download complete (${sizeMB} MB)`
     );
 
-    // Verify
-    this.emitProgress("Verifying integrity", 80, `-> Verifying download...`);
+    // Verify size
+    this.emitProgress("Verifying integrity", 78, `-> Verifying download size...`);
     const stat = fs.statSync(tmpPath);
     if (stat.size < 1024 * 1024) {
       fs.unlinkSync(tmpPath);
       throw new Error(
         `Downloaded file too small (${stat.size} bytes). Download may have failed.`
       );
+    }
+
+    // SHA256 checksum verification (if checksum file available in release)
+    this.emitProgress("Verifying integrity", 80, `-> Checking SHA256 checksum...`);
+    const checksumAsset = release.assets.find((a) => a.name === asset + ".sha256");
+    if (checksumAsset) {
+      try {
+        const checksumBody = await this.httpsGet(checksumAsset.browser_download_url, {
+          "User-Agent": "archexa-vscode",
+        });
+        const expectedHash = checksumBody.trim().split(/\s+/)[0].toLowerCase();
+        const actualHash = await this.sha256File(tmpPath);
+        if (expectedHash !== actualHash) {
+          fs.unlinkSync(tmpPath);
+          throw new Error(
+            `SHA256 mismatch: expected ${expectedHash.slice(0, 16)}..., got ${actualHash.slice(0, 16)}...`
+          );
+        }
+        this.emitProgress("Verifying integrity", 82, `-> Checksum verified`);
+      } catch (err) {
+        if (err instanceof Error && err.message.includes("SHA256 mismatch")) throw err;
+        this.logger.debug("Checksum file download failed (non-fatal): " + String(err));
+      }
+    } else {
+      this.logger.debug("No checksum file in release — skipping SHA256 verification");
     }
 
     // Atomic rename
@@ -325,6 +359,16 @@ export class BinaryManager {
     return JSON.parse(body) as GitHubRelease;
   }
 
+  private async sha256File(filePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash("sha256");
+      const stream = fs.createReadStream(filePath);
+      stream.on("data", (chunk) => hash.update(chunk));
+      stream.on("end", () => resolve(hash.digest("hex")));
+      stream.on("error", reject);
+    });
+  }
+
   private async downloadFile(
     url: string,
     dest: string,
@@ -339,8 +383,18 @@ export class BinaryManager {
           return;
         }
         const parsedUrl = new URL(downloadUrl);
-        const mod = parsedUrl.protocol === "https:" ? https : http;
-        mod
+        // Security: only follow redirects to known GitHub CDN hosts, and require HTTPS
+        if (parsedUrl.protocol !== "https:") {
+          file.close();
+          reject(new Error(`Refusing non-HTTPS redirect to ${parsedUrl.hostname}`));
+          return;
+        }
+        if (redirects > 0 && !ALLOWED_REDIRECT_HOSTS.has(parsedUrl.hostname)) {
+          file.close();
+          reject(new Error(`Refusing redirect to untrusted host: ${parsedUrl.hostname}`));
+          return;
+        }
+        https
           .get(
             downloadUrl,
             { headers: { "User-Agent": "archexa-vscode" } },
@@ -407,6 +461,15 @@ export class BinaryManager {
       ): void => {
         if (redirectCount > 5) {
           reject(new Error("Too many redirects"));
+          return;
+        }
+        const parsedUrl = new URL(requestUrl);
+        if (parsedUrl.protocol !== "https:") {
+          reject(new Error(`Refusing non-HTTPS request to ${parsedUrl.hostname}`));
+          return;
+        }
+        if (redirectCount > 0 && !ALLOWED_REDIRECT_HOSTS.has(parsedUrl.hostname)) {
+          reject(new Error(`Refusing redirect to untrusted host: ${parsedUrl.hostname}`));
           return;
         }
         https

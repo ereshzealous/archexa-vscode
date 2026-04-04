@@ -30,11 +30,11 @@ export class WelcomeWebview {
       vscode.Uri.joinPath(ctx.extensionUri, "media", "archexa-icon.svg")
     );
 
-    const cfg = vscode.workspace.getConfiguration("archexa");
-    const version = cfg.get<string>("binaryVersion") ?? "beta";
+    const extVersion = ctx.extension.packageJSON.version as string ?? "0.1.0";
     const nonce = getNonce();
+    const isMac = process.platform === "darwin";
 
-    panel.webview.html = buildHtml(panel.webview, cssUri, iconUri, version, nonce);
+    panel.webview.html = buildHtml(panel.webview, cssUri, iconUri, extVersion, nonce, isMac);
 
     panel.webview.onDidReceiveMessage((msg: { type: string }) => {
       switch (msg.type) {
@@ -64,8 +64,10 @@ function buildHtml(
   cssUri: vscode.Uri,
   iconUri: vscode.Uri,
   version: string,
-  nonce: string
+  nonce: string,
+  isMac: boolean
 ): string {
+  const mod = isMac ? "Cmd" : "Ctrl";
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -98,8 +100,8 @@ function buildHtml(
       <div class="privacy-title">Your code stays private</div>
       <div class="privacy-text">
         Archexa runs entirely on your machine. The binary scans your code locally using
-        AST parsing and pattern matching. Only LLM prompts are sent to the API endpoint
-        you configure (OpenAI, OpenRouter, Ollama, etc). No code is sent to Archexa servers.
+        tree-sitter AST parsing. Only LLM prompts (containing code context) are sent to the
+        API endpoint you configure. No code is sent to Archexa servers.
         No telemetry. No account required.
       </div>
     </div>
@@ -116,19 +118,19 @@ function buildHtml(
         <div class="how-step">
           <div class="how-num">1</div>
           <div class="how-body">
-            <strong>Scan</strong> — The binary scans your repo using tree-sitter AST parsing, extracting imports, function signatures, class hierarchies, and call patterns.
+            <strong>Scan</strong> — Tree-sitter AST parsing extracts imports, function signatures, class hierarchies, and call patterns.
           </div>
         </div>
         <div class="how-step">
           <div class="how-num">2</div>
           <div class="how-body">
-            <strong>Investigate</strong> (deep mode) — The LLM reads specific files, greps for patterns, traces callers, and follows data flow. Like a senior engineer exploring the codebase.
+            <strong>Investigate</strong> (deep mode) — The LLM reads specific files, greps for patterns, traces callers, and follows data flow across your codebase.
           </div>
         </div>
         <div class="how-step">
           <div class="how-num">3</div>
           <div class="how-body">
-            <strong>Synthesize</strong> — Evidence from scanning and investigation is assembled into a context-optimized prompt, then the LLM generates the final output with citations.
+            <strong>Synthesize</strong> — Evidence is assembled into a context-optimized prompt. The LLM generates the final output with file references and citations.
           </div>
         </div>
       </div>
@@ -144,44 +146,49 @@ function buildHtml(
   <div class="tab-content" id="tab-features">
     <div class="features">
       <div class="feature-card">
-        <div class="feature-title">Diagnose Errors</div>
-        <div class="feature-desc">Select an error, stack trace, or log file. Archexa correlates it with your codebase to find the root cause. Supports time-filtered log analysis.</div>
-        <div class="feature-shortcut">Cmd+Shift+D</div>
+        <div class="feature-title">Review</div>
+        <div class="feature-desc">Cross-file architecture-aware code review with inline findings (squiggles). Review files, uncommitted changes, or branch diffs.</div>
+        <div class="feature-shortcut">${mod}+Shift+R</div>
       </div>
       <div class="feature-card">
-        <div class="feature-title">Code Review</div>
-        <div class="feature-desc">Cross-file architecture-aware review. Finds security issues, resource leaks, and interface mismatches that linters miss. Review files, uncommitted changes, or branch diffs.</div>
-        <div class="feature-shortcut">Cmd+Shift+R</div>
+        <div class="feature-title">Diagnose</div>
+        <div class="feature-desc">Root-cause errors from selection, clipboard, or log files. Traces call chains and reads surrounding code to find the cause.</div>
+        <div class="feature-shortcut">${mod}+Shift+D</div>
       </div>
       <div class="feature-card">
-        <div class="feature-title">Query Codebase</div>
-        <div class="feature-desc">Ask any question about your code. "How does auth work?" "Where are database queries?" The LLM reads files and traces flows to answer.</div>
-        <div class="feature-shortcut">Cmd+Alt+Q</div>
+        <div class="feature-title">Impact</div>
+        <div class="feature-desc">What breaks if this file changes? Traces callers, consumers, and interface contracts to predict downstream impact.</div>
+        <div class="feature-shortcut">${mod}+Shift+I</div>
       </div>
       <div class="feature-card">
-        <div class="feature-title">Impact Analysis</div>
-        <div class="feature-desc">What breaks if this file changes? Traces dependencies, callers, and interface contracts to predict downstream impact before you ship.</div>
-        <div class="feature-shortcut">Cmd+Shift+I</div>
+        <div class="feature-title">Query</div>
+        <div class="feature-desc">Ask any question about your codebase. The LLM reads files and traces flows to answer with evidence.</div>
+        <div class="feature-shortcut">${mod}+Alt+Q</div>
       </div>
       <div class="feature-card">
-        <div class="feature-title">Quick Gist</div>
-        <div class="feature-desc">Get a fast overview of any codebase. Tech stack, how things connect, key modules, developer quick start. Great for onboarding.</div>
+        <div class="feature-title">Gist</div>
+        <div class="feature-desc">Quick codebase overview: tech stack, key modules, how things connect. Great for onboarding to new projects.</div>
       </div>
       <div class="feature-card">
-        <div class="feature-title">Full Architecture</div>
-        <div class="feature-desc">Comprehensive architecture documentation. Multi-phase analysis with AST parsing, evidence extraction, and LLM synthesis. Commit-ready markdown.</div>
+        <div class="feature-title">Analyze</div>
+        <div class="feature-desc">Full architecture documentation with multi-phase AST analysis. Produces commit-ready markdown with diagrams.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-title">Explain This</div>
+        <div class="feature-desc">Right-click any selection to understand what it does, why it exists, and how it connects to the rest of the codebase.</div>
+        <div class="feature-shortcut">Right-click &gt; Archexa &gt; Explain</div>
       </div>
     </div>
 
     <div class="content-section">
       <div class="section-title">Deep Mode</div>
-      <p>Every command supports deep mode — an agentic investigation where the LLM reads files, greps for patterns, traces callers, and iterates before generating output. It's like having a senior engineer explore your codebase before answering.</p>
-      <p>Deep mode uses 3-10x more tokens but finds cross-file issues that pipeline mode misses. Configure it globally in Settings or per-command.</p>
+      <p>Every command supports deep mode — an agentic investigation where the LLM reads files, greps for patterns, traces callers, and iterates before generating output.</p>
+      <p>Deep mode uses more tokens but finds cross-file issues that pipeline mode misses. Configure it globally in Settings &gt; Behaviour.</p>
     </div>
 
     <div class="content-section">
       <div class="section-title">Inline Findings</div>
-      <p>Review findings appear as squiggles in the editor (red for errors, yellow for warnings, blue for info) and in the VS Code Problems panel, just like TypeScript or ESLint diagnostics.</p>
+      <p>Review findings appear as squiggles in the editor and in the VS Code Problems panel, just like TypeScript or ESLint diagnostics. Errors are red, warnings are yellow, info is blue.</p>
     </div>
   </div>
 
@@ -192,7 +199,7 @@ function buildHtml(
         <div class="step-num">1</div>
         <div class="step-body">
           <div class="step-title">Configure your LLM provider</div>
-          <div class="step-desc">Set your API key, base URL, and model. Any OpenAI-compatible endpoint works — OpenAI, OpenRouter, Anthropic (via proxy), Ollama, vLLM, LiteLLM.</div>
+          <div class="step-desc">Set your API key, base URL, and model in Settings &gt; Connection. Any OpenAI-compatible endpoint works &mdash; OpenAI, OpenRouter, Ollama, vLLM, LiteLLM, etc.</div>
           <button class="step-action primary" id="btnSettings">Open Settings</button>
         </div>
       </div>
@@ -201,7 +208,7 @@ function buildHtml(
         <div class="step-num">2</div>
         <div class="step-body">
           <div class="step-title">Open a project</div>
-          <div class="step-desc">Open any codebase folder in VS Code. Archexa creates an <code>archexa.yaml</code> config file in your workspace root with your settings.</div>
+          <div class="step-desc">Open any codebase folder in VS Code. Your settings are synced automatically &mdash; no manual config files needed.</div>
         </div>
       </div>
 
@@ -209,7 +216,7 @@ function buildHtml(
         <div class="step-num">3</div>
         <div class="step-body">
           <div class="step-title">Run your first command</div>
-          <div class="step-desc">Click the Archexa icon in the activity bar to open the sidebar. Or right-click any file in the explorer.</div>
+          <div class="step-desc">Click the Archexa icon in the activity bar to open the sidebar, or right-click any file in the explorer. Try a Quick Gist to see an overview of your codebase.</div>
           <button class="step-action" id="btnSidebar">Open Sidebar</button>
           <button class="step-action" id="btnGist" style="margin-left:6px">Try Quick Gist</button>
         </div>
@@ -219,10 +226,10 @@ function buildHtml(
     <div class="content-section">
       <div class="section-title">Keyboard Shortcuts</div>
       <div class="shortcuts">
-        <div class="shortcut-row"><span>Diagnose selected error</span><span class="shortcut-key">Cmd+Shift+D</span></div>
-        <div class="shortcut-row"><span>Review current file</span><span class="shortcut-key">Cmd+Shift+R</span></div>
-        <div class="shortcut-row"><span>Query codebase</span><span class="shortcut-key">Cmd+Alt+Q</span></div>
-        <div class="shortcut-row"><span>Impact analysis</span><span class="shortcut-key">Cmd+Shift+I</span></div>
+        <div class="shortcut-row"><span>Diagnose selected error</span><span class="shortcut-key">${mod}+Shift+D</span></div>
+        <div class="shortcut-row"><span>Review current file</span><span class="shortcut-key">${mod}+Shift+R</span></div>
+        <div class="shortcut-row"><span>Query codebase</span><span class="shortcut-key">${mod}+Alt+Q</span></div>
+        <div class="shortcut-row"><span>Impact analysis</span><span class="shortcut-key">${mod}+Shift+I</span></div>
       </div>
     </div>
 
@@ -230,9 +237,9 @@ function buildHtml(
       <div class="section-title">Requirements</div>
       <ul class="req-list">
         <li>VS Code 1.85 or later</li>
-        <li>An OpenAI-compatible API key (OpenAI, OpenRouter, etc.)</li>
-        <li>Internet connection (for LLM API calls only — scanning is offline)</li>
-        <li>No Python, pip, or other runtime needed — the binary is self-contained</li>
+        <li>An OpenAI-compatible API key (OpenAI, OpenRouter, Ollama, etc.)</li>
+        <li>Internet connection for LLM API calls only &mdash; scanning is fully offline</li>
+        <li>No Python, pip, or other runtime needed &mdash; the binary is self-contained (~20 MB)</li>
       </ul>
     </div>
   </div>
@@ -241,42 +248,46 @@ function buildHtml(
   <div class="tab-content" id="tab-changelog">
     <div class="content-section">
       <div class="changelog-entry">
-        <div class="changelog-version">v0.3.0-beta <span class="changelog-date">April 2026</span></div>
+        <div class="changelog-version">v0.1.0 <span class="changelog-date">April 2026</span></div>
         <ul>
-          <li>Real-time streaming output (--stdout flag)</li>
-          <li>Added Quick Gist and Full Architecture commands</li>
-          <li>Sidebar redesigned as webview with SVG icons</li>
-          <li>Connection test sends real chat completion request</li>
-          <li>Settings auto-sync to archexa.yaml</li>
-          <li>Cancel immediately kills process (SIGTERM + SIGKILL fallback)</li>
-          <li>Version update notifications via version.json manifest</li>
-          <li>35 unit tests</li>
+          <li>Unified sidebar with chat, settings, and history in a single webview</li>
+          <li>Two-step command wizard: grouped slash menu + per-command input forms</li>
+          <li>Seven AI commands: Review, Diagnose, Impact, Query, Gist, Analyze, Explain This</li>
+          <li>Real-time streaming output with live agent step display</li>
+          <li>File autocomplete with <code>git ls-files</code> integration</li>
+          <li>Collapsible chat history with accordion UI</li>
+          <li>Settings panel with Connect, Behaviour, Prompts, and Advanced tabs</li>
+          <li>Inline review findings as editor squiggles (VS Code Problems panel)</li>
+          <li>Auto-download binary from GitHub Releases with SHA256 verification</li>
+          <li>Connection test (sends real chat/completions request)</li>
+          <li>Multi-file review and impact analysis (explorer multi-select)</li>
+          <li>Review uncommitted changes and branch diffs</li>
+          <li>Custom prompts per command</li>
+          <li>History with date groups (Today, Yesterday, etc.)</li>
+          <li>Platform-aware keyboard shortcuts (${mod} on ${isMac ? "macOS" : "Windows/Linux"})</li>
         </ul>
-      </div>
 
-      <div class="changelog-entry">
-        <div class="changelog-version">v0.2.0-beta <span class="changelog-date">March 2026</span></div>
+        <div class="changelog-sub">Security</div>
         <ul>
-          <li>Initial VS Code extension with diagnose, review, query, impact</li>
-          <li>Auto-download binary from GitHub Releases</li>
-          <li>Onboarding setup wizard</li>
-          <li>Settings webview with 8 sections</li>
-          <li>Inline diagnostic squiggles for review findings</li>
+          <li>XSS prevention: HTML escaping on all dynamic values</li>
+          <li>Shell injection prevention: <code>execFileSync</code> over <code>execSync</code></li>
+          <li>API key never sent to webview (masked display only)</li>
+          <li>Binary downloads restricted to HTTPS GitHub CDN hosts</li>
+          <li>SHA256 checksum verification for downloaded binaries</li>
         </ul>
-      </div>
 
-      <div class="changelog-entry">
-        <div class="changelog-version">v0.1.0-alpha <span class="changelog-date">February 2026</span></div>
+        <div class="changelog-sub">Supported Platforms</div>
         <ul>
-          <li>Proof of concept — CLI wrapper with basic webview output</li>
+          <li>macOS (Apple Silicon, Intel)</li>
+          <li>Linux (x86_64, arm64)</li>
+          <li>Windows (x64)</li>
         </ul>
       </div>
     </div>
   </div>
 
   <div class="welcome-footer">
-    Archexa is open source under the Apache 2.0 license.<br/>
-    github.com/ereshzealous/archexa
+    Apache 2.0 License
   </div>
 
   <script nonce="${nonce}">

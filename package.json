@@ -1,18 +1,22 @@
 {
   "name": "archexa",
-  "displayName": "Archexa",
+  "displayName": "Archexa (Beta)",
   "description": "AI-powered codebase intelligence — diagnose errors, review code, query architecture, trace impact",
   "version": "0.1.0",
-  "publisher": "ereshzealous",
+  "publisher": "EreshGorantla",
   "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
+  "license": "Apache-2.0",
   "categories": [
     "Other",
-    "Programming Languages",
-    "Linters"
+    "Machine Learning"
   ],
+  "galleryBanner": {
+    "color": "#0d1117",
+    "theme": "dark"
+  },
   "keywords": [
     "ai",
     "architecture",
@@ -26,7 +30,7 @@
     "url": "https://github.com/ereshzealous/archexa-vscode"
   },
   "activationEvents": [
-    "onStartupFinished"
+    "onView:archexa.sidebar"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -136,10 +140,9 @@
         "category": "Archexa"
       },
       {
-        "command": "archexa.openChat",
-        "title": "Open Chat",
-        "category": "Archexa",
-        "icon": "$(comment-discussion)"
+        "command": "archexa.cancelCurrentRun",
+        "title": "Cancel Current Run",
+        "category": "Archexa"
       }
     ],
     "submenus": [
@@ -361,6 +364,16 @@
           "type": "boolean",
           "default": false,
           "description": "Auto-run quick review on file save."
+        },
+        "archexa.showTokenUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show token usage stats in the result panel after each run."
+        },
+        "archexa.clearFindingsOnNewReview": {
+          "type": "boolean",
+          "default": true,
+          "description": "Clear previous inline findings when starting a new review."
         },
         "archexa.outputDir": {
           "type": "string",

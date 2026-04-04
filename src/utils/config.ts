@@ -1,5 +1,18 @@
 import * as vscode from "vscode";
 
+/**
+ * Escape a string for safe inclusion in a YAML double-quoted scalar.
+ * Handles: backslash, double-quote, newline, carriage return, tab.
+ */
+function yamlEscape(s: string): string {
+  return s
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t");
+}
+
 /** Default values for all Archexa settings */
 export const DEFAULTS = {
   model: "gpt-4o",
@@ -25,21 +38,21 @@ export function generateConfigYaml(): string {
     "archexa:",
     '  source: "."',
     "  openai:",
-    `    model: "${cfg.get<string>("model") ?? DEFAULTS.model}"`,
-    `    endpoint: "${cfg.get<string>("endpoint") ?? DEFAULTS.endpoint}"`,
+    `    model: "${yamlEscape(cfg.get<string>("model") ?? DEFAULTS.model)}"`,
+    `    endpoint: "${yamlEscape(cfg.get<string>("endpoint") ?? DEFAULTS.endpoint)}"`,
     `    tls_verify: ${cfg.get<boolean>("tlsVerify") ?? DEFAULTS.tlsVerify}`,
     "  deep:",
     `    enabled: ${cfg.get<boolean>("deepByDefault") ?? DEFAULTS.deepByDefault}`,
-    `    max_iterations: ${cfg.get<number>("deepMaxIterations") ?? DEFAULTS.deepMaxIterations}`,
+    `    max_iterations: ${Number(cfg.get<number>("deepMaxIterations") ?? DEFAULTS.deepMaxIterations)}`,
     `  cache: ${cfg.get<boolean>("cacheEnabled") ?? DEFAULTS.cacheEnabled}`,
-    `  output: "${cfg.get<string>("outputDir") ?? DEFAULTS.outputDir}"`,
-    `  log_level: "${cfg.get<string>("logLevel") ?? DEFAULTS.logLevel}"`,
+    `  output: "${yamlEscape(cfg.get<string>("outputDir") ?? DEFAULTS.outputDir)}"`,
+    `  log_level: "${yamlEscape(cfg.get<string>("logLevel") ?? DEFAULTS.logLevel)}"`,
     "  limits:",
-    `    max_files: ${cfg.get<number>("maxFiles") ?? DEFAULTS.maxFiles}`,
-    `    prompt_budget: ${cfg.get<number>("promptBudget") ?? DEFAULTS.promptBudget}`,
-    `    prompt_reserve: ${cfg.get<number>("promptReserve") ?? DEFAULTS.promptReserve}`,
+    `    max_files: ${Number(cfg.get<number>("maxFiles") ?? DEFAULTS.maxFiles)}`,
+    `    prompt_budget: ${Number(cfg.get<number>("promptBudget") ?? DEFAULTS.promptBudget)}`,
+    `    prompt_reserve: ${Number(cfg.get<number>("promptReserve") ?? DEFAULTS.promptReserve)}`,
     "  evidence:",
-    `    file_size_limit: ${cfg.get<number>("fileSizeLimit") ?? DEFAULTS.fileSizeLimit}`,
+    `    file_size_limit: ${Number(cfg.get<number>("fileSizeLimit") ?? DEFAULTS.fileSizeLimit)}`,
   ];
 
   // Only include custom prompts if non-empty
@@ -71,7 +84,7 @@ export function generateConfigYaml(): string {
   const reviewTarget = cfg.get<string>("reviewTarget")?.trim();
   if (reviewTarget) {
     lines.push("  review:");
-    lines.push(`    target: "${reviewTarget}"`);
+    lines.push(`    target: "${yamlEscape(reviewTarget)}"`);
   }
 
   // Scan focus directories
@@ -79,7 +92,7 @@ export function generateConfigYaml(): string {
   if (scanFocus.length > 0) {
     lines.push("  scan_focus:");
     for (const dir of scanFocus) {
-      lines.push(`    - "${dir}"`);
+      lines.push(`    - "${yamlEscape(dir)}"`);
     }
   }
 
@@ -90,7 +103,7 @@ export function generateConfigYaml(): string {
   if (allPatterns.length > 0) {
     lines.push("  exclude_patterns:");
     for (const pat of allPatterns) {
-      lines.push(`    - "${pat}"`);
+      lines.push(`    - "${yamlEscape(pat)}"`);
     }
   }
 
