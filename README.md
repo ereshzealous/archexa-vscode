@@ -8,21 +8,41 @@
 
 ## Features
 
-| Command | What it does | Shortcut |
-|---------|-------------|----------|
-| **Review** | Cross-file architecture-aware code review with inline findings (squiggles) | `Cmd+Shift+R` / `Ctrl+Shift+R` |
-| **Diagnose** | Root-cause errors from selection, clipboard, or log files | `Cmd+Shift+D` / `Ctrl+Shift+D` |
-| **Impact** | What breaks if this file changes? Traces callers and contracts | `Cmd+Shift+I` / `Ctrl+Shift+I` |
-| **Query** | Ask any question about your codebase with evidence-backed answers | `Cmd+Alt+Q` / `Ctrl+Shift+Q` |
-| **Gist** | Quick codebase overview: tech stack, key modules, how things connect | Sidebar |
-| **Analyze** | Full architecture documentation with multi-phase AST analysis | Sidebar |
-| **Explain** | Right-click any selection to understand what it does and why | Right-click > Archexa |
+### Review
+Cross-file architecture-aware code review. Finds security issues, resource leaks, and interface mismatches that linters miss. Findings appear as inline squiggles in the editor.
+
+`Cmd+Shift+R` / `Ctrl+Shift+R`
+
+### Diagnose
+Root-cause errors from selection, clipboard, or log files. Traces call chains and reads surrounding code to find the cause.
+
+`Cmd+Shift+D` / `Ctrl+Shift+D`
+
+### Impact
+What breaks if this file changes? Traces callers, consumers, and interface contracts to predict downstream impact.
+
+`Cmd+Shift+I` / `Ctrl+Shift+I`
+
+### Query
+Ask any question about your codebase. The LLM reads files and traces flows to answer with evidence.
+
+`Cmd+Alt+Q` / `Ctrl+Shift+Q`
+
+### Gist
+Quick codebase overview: tech stack, key modules, how things connect. Great for onboarding.
+
+### Analyze
+Full architecture documentation with multi-phase AST analysis. Produces commit-ready markdown.
 
 ---
 
 ## Review Findings
 
 Review findings appear as **inline squiggles** in the editor and in the VS Code **Problems panel**, just like TypeScript or ESLint diagnostics.
+
+- Red = error
+- Yellow = warning
+- Blue = info
 
 ![Review findings with inline squiggles](media/screenshots/review-findings.png)
 
@@ -51,10 +71,10 @@ Review findings appear as **inline squiggles** in the editor and in the VS Code 
 
 The unified sidebar provides:
 
-- **Command wizard** — Two-step flow: pick a command, then fill in the form (files, focus, error text)
-- **Chat** — Streaming results with live agent steps and collapsible message history
+- **Command wizard** — Two-step flow: pick a command, then fill in the form
+- **Chat** — Streaming results with live agent steps and collapsible history
 - **Settings** — Connection, Behaviour, Prompts, and Advanced tabs
-- **History** — Recent results with date groups, clickable to reopen
+- **History** — Recent results with date groups, token usage, and duration
 
 ---
 
@@ -63,6 +83,20 @@ The unified sidebar provides:
 Run **Gist** for a quick overview or **Analyze** for full architecture documentation with Mermaid diagrams.
 
 ![Gist output](media/screenshots/gist-output.png)
+
+---
+
+## Deep Mode
+
+Every command supports **deep mode** — an agentic investigation where the LLM reads files, greps for patterns, traces callers, and iterates before generating output.
+
+Deep mode finds cross-file issues that pipeline mode misses. Toggle it in **Settings > Behaviour**.
+
+---
+
+## Supported Languages
+
+Python, TypeScript, JavaScript, Go, Java, Rust, Ruby, C#, Kotlin, Scala, C++, C, PHP
 
 ---
 
@@ -78,33 +112,7 @@ your-project/
   .archexa_cache/            ← tree-sitter AST cache (managed by CLI)
 ```
 
-- **Config** — Your settings (model, endpoint, prompts, etc.) are saved to `.archexa/config.yaml`. This file is regenerated from the Settings UI. If you have a manual `archexa.yaml` in the project root, it will be used as a fallback.
-- **Output** — All generated markdown files are saved in `.archexa/` by default. You can change this in **Settings > Advanced > Output directory**.
-- **Cache** — The CLI caches tree-sitter parse results in `.archexa_cache/` for faster repeat runs.
-
-### .gitignore
-
-On first activation, the extension checks if `.archexa/` is in your `.gitignore` and offers to add it. If you prefer to do it manually:
-
-```gitignore
-# Archexa (AI codebase intelligence)
-.archexa/
-.archexa_cache/
-```
-
----
-
-## Deep Mode
-
-Every command supports **deep mode** — an agentic investigation where the LLM reads files, greps for patterns, traces callers, and iterates before generating output.
-
-Deep mode finds cross-file issues that pipeline mode misses. Toggle it in **Settings > Behaviour**.
-
----
-
-## Supported Languages
-
-Python, TypeScript, JavaScript, Go, Java, Rust, Ruby, C#, Kotlin, Scala, C++, C, PHP
+On first activation, the extension offers to add `.archexa/` and `.archexa_cache/` to your `.gitignore`.
 
 ---
 
