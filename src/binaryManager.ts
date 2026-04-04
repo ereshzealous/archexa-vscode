@@ -29,6 +29,7 @@ const PLATFORM_ASSET: Record<string, string> = {
 };
 
 /** Only follow redirects to these hosts (GitHub CDN) */
+/** Known GitHub hosts (exact match) + any *.githubusercontent.com subdomain */
 const ALLOWED_REDIRECT_HOSTS = new Set([
   "github.com",
   "api.github.com",
@@ -37,6 +38,10 @@ const ALLOWED_REDIRECT_HOSTS = new Set([
   "release-assets.githubusercontent.com",
   "raw.githubusercontent.com",
 ]);
+
+function isAllowedHost(hostname: string): boolean {
+  return ALLOWED_REDIRECT_HOSTS.has(hostname) || hostname.endsWith(".githubusercontent.com");
+}
 
 interface GitHubRelease {
   tag_name: string;
@@ -406,7 +411,7 @@ export class BinaryManager {
           reject(new Error(`Refusing non-HTTPS redirect to ${parsedUrl.hostname}`));
           return;
         }
-        if (redirects > 0 && !ALLOWED_REDIRECT_HOSTS.has(parsedUrl.hostname)) {
+        if (redirects > 0 && !isAllowedHost(parsedUrl.hostname)) {
           file.close();
           reject(new Error(`Refusing redirect to untrusted host: ${parsedUrl.hostname}`));
           return;
@@ -485,7 +490,7 @@ export class BinaryManager {
           reject(new Error(`Refusing non-HTTPS request to ${parsedUrl.hostname}`));
           return;
         }
-        if (redirectCount > 0 && !ALLOWED_REDIRECT_HOSTS.has(parsedUrl.hostname)) {
+        if (redirectCount > 0 && !isAllowedHost(parsedUrl.hostname)) {
           reject(new Error(`Refusing redirect to untrusted host: ${parsedUrl.hostname}`));
           return;
         }
