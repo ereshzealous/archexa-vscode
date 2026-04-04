@@ -11,7 +11,9 @@ tsconfig.json
 .mocharc.yml
 *.vsix
 .archexa/**
+.archexa_cache/**
 .claude/**
 test-mock-binary.sh
 .gitignore
 **/*.map
+.archexa-vscode-tmp.yaml
