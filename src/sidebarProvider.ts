@@ -20,6 +20,9 @@ export interface HistoryEntry {
   timestamp: number;
   markdown: string;
   status?: "cancelled" | "error";
+  durationMs?: number;
+  promptTokens?: number;
+  completionTokens?: number;
   filePath?: string;
   question?: string;
 }
@@ -47,6 +50,7 @@ interface RunState {
   streamBuffer: string;
   debounceTimer: ReturnType<typeof setTimeout> | undefined;
   findingsCleared?: boolean;
+  doneStats?: { durationMs: number; promptTokens: number; completionTokens: number };
 }
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
@@ -253,12 +257,22 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   /** Update an existing history entry's markdown (used when run completes) */
-  private updateHistoryEntry(id: string, markdown: string, status?: "cancelled" | "error"): void {
+  private updateHistoryEntry(
+    id: string,
+    markdown: string,
+    status?: "cancelled" | "error",
+    stats?: { durationMs?: number; promptTokens?: number; completionTokens?: number }
+  ): void {
     const entries = this.ctx.workspaceState.get<HistoryEntry[]>("archexa.history", []);
     const entry = entries.find(e => e.id === id);
     if (entry) {
       entry.markdown = markdown;
       if (status) entry.status = status;
+      if (stats) {
+        entry.durationMs = stats.durationMs;
+        entry.promptTokens = stats.promptTokens;
+        entry.completionTokens = stats.completionTokens;
+      }
       void this.ctx.workspaceState.update("archexa.history", entries);
       this.refresh();
     }
@@ -342,6 +356,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           this.postMessage({ type: "agentLog", id: msgId, line });
         },
         onDone: (durationMs, promptTokens, completionTokens) => {
+          run.doneStats = { durationMs, promptTokens, completionTokens };
           this.postMessage({ type: "assistantDone", id: msgId, durationMs, promptTokens, completionTokens });
         },
         token: run.tokenSource.token,
@@ -356,14 +371,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       // assistantDone already sent by onDone callback with full stats — only update status bar
       this.services.statusBar.setDone(`${label} complete`);
 
-      // Update the "running" history entry with final markdown
-      this.updateHistoryEntry(msgId, run.streamBuffer);
+      // Update the "running" history entry with final markdown + stats
+      this.updateHistoryEntry(msgId, run.streamBuffer, undefined, run.doneStats);
     } catch (err: unknown) {
       if (run.debounceTimer) clearTimeout(run.debounceTimer);
       if (run.tokenSource.token.isCancellationRequested) {
         this.postMessage({ type: "assistantCancelled", id: msgId });
         this.services.statusBar.setIdle();
-        // Mark history entry as cancelled so it stops showing as "running"
         const partial = run.streamBuffer || "*Cancelled by user.*";
         this.updateHistoryEntry(msgId, partial, "cancelled");
       } else {
@@ -560,6 +574,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           this.postMessage({ type: "agentLog", id: msgId, line });
         },
         onDone: (durationMs, promptTokens, completionTokens) => {
+          run.doneStats = { durationMs, promptTokens, completionTokens };
           this.postMessage({ type: "assistantDone", id: msgId, durationMs, promptTokens, completionTokens });
         },
         token: run.tokenSource.token,
@@ -574,8 +589,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       // assistantDone already sent by onDone callback with full stats — only update status bar
       this.services.statusBar.setDone(`${parsed.label} complete`);
 
-      // Update the "running" history entry with the final markdown
-      this.updateHistoryEntry(historyId, run.streamBuffer);
+      // Update the "running" history entry with the final markdown + stats
+      this.updateHistoryEntry(historyId, run.streamBuffer, undefined, run.doneStats);
     } catch (err: unknown) {
       if (run.debounceTimer) clearTimeout(run.debounceTimer);
       if (run.tokenSource.token.isCancellationRequested) {
@@ -905,8 +920,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     .history-title {
       flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    .history-meta {
+      display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto;
+    }
+    .history-stats {
+      font-size: 9px; color: var(--vscode-descriptionForeground); flex-shrink: 0;
+      font-family: var(--vscode-editor-font-family);
+      background: var(--vscode-textCodeBlock-background);
+      padding: 1px 5px; border-radius: 3px;
+    }
     .history-time {
-      font-size: 10px; color: var(--vscode-descriptionForeground); flex-shrink: 0;
+      font-size: 9px; color: var(--vscode-descriptionForeground); flex-shrink: 0;
+      font-family: var(--vscode-editor-font-family);
+      background: var(--vscode-textCodeBlock-background);
+      padding: 1px 5px; border-radius: 3px;
     }
     .history-group {
       padding: 6px 12px 2px; font-size: 10px; font-weight: 600;
@@ -1878,6 +1905,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     let currentScreen = "home";
     let previousScreen = "home";
     let chatFindingCount = 0;
+    let showTokenUsage = true;
 
     // ── Screen switching ──
     function showScreen(name) {
@@ -2857,7 +2885,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       setToggle("tlsToggle", c.tlsVerify !== false);
       setToggle("deepToggle", c.deepByDefault !== false);
       setToggle("cacheToggle", c.cacheEnabled !== false);
-      setToggle("tokenUsageToggle", c.showTokenUsage === true);
+      showTokenUsage = c.showTokenUsage === true;
+      setToggle("tokenUsageToggle", showTokenUsage);
       setToggle("squigglesToggle", c.showInlineFindings !== false);
       setToggle("autoReviewToggle", c.autoReviewOnSave === true);
       setToggle("clearFindingsToggle", c.clearFindingsOnNewReview !== false);
@@ -2921,10 +2950,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           : isCancelled ? ' <span class="history-status-cancelled">(cancelled)</span>'
           : isError ? ' <span class="history-status-error">(failed)</span>'
           : '';
+        let statsStr = "";
+        if (!isRunning && !isCancelled && !isError && showTokenUsage) {
+          const total = (item.promptTokens || 0) + (item.completionTokens || 0);
+          if (total > 0) statsStr = (total >= 1000 ? (total/1000).toFixed(1) + "k" : total) + " tok";
+        }
+        let metaHtml = '<span class="history-meta">';
+        if (statsStr) metaHtml += '<span class="history-stats">' + statsStr + '</span>';
+        if (item.durationMs > 0 && !isRunning) metaHtml += '<span class="history-time">' + (item.durationMs/1000).toFixed(0) + 's</span>';
+        else metaHtml += '<span class="history-time">' + item.relTime + '</span>';
+        metaHtml += '</span>';
         html += '<div class="history-item' + stateClass + '" data-idx="' + historyData.indexOf(item) + '" tabindex="0" role="button">'
           + '<span class="history-icon">' + icon + '</span>'
           + '<span class="history-title">' + esc(title) + suffix + '</span>'
-          + '<span class="history-time">' + item.relTime + '</span>'
+          + metaHtml
           + '</div>';
       }
       container.innerHTML = html;
@@ -3187,10 +3226,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           const statsEl = document.getElementById("qcStats");
           let statsHtml = "";
           if (msg.durationMs > 0) statsHtml += "\\u2713 " + (msg.durationMs/1000).toFixed(1) + "s";
-          const totalTokens = (msg.promptTokens || 0) + (msg.completionTokens || 0);
-          if (totalTokens > 0) {
-            const tokenStr = totalTokens >= 1000 ? (totalTokens/1000).toFixed(1) + "k" : totalTokens.toString();
-            statsHtml += (statsHtml ? "  " : "") + tokenStr + " tokens";
+          const promptTok = msg.promptTokens || 0;
+          const completionTok = msg.completionTokens || 0;
+          if (showTokenUsage && (promptTok > 0 || completionTok > 0)) {
+            function fmtTok(n) { return n >= 1000 ? (n/1000).toFixed(1) + "k" : n.toString(); }
+            statsHtml += (statsHtml ? "  " : "") + fmtTok(promptTok) + " / " + fmtTok(completionTok) + " tokens";
           }
           if (chatFindingCount > 0) {
             statsHtml += (statsHtml ? "  " : "") + chatFindingCount + " finding" + (chatFindingCount !== 1 ? "s" : "");
@@ -3203,12 +3243,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           const toolbar = document.getElementById("toolbar-" + msg.id);
           if (toolbar) toolbar.style.display = "flex";
 
-          // Update collapsed bar: replace running badge with findings badge + time
+          // Update collapsed bar: findings badge + tokens + time
           const badgeEl = document.getElementById("badge-" + msg.id);
           if (badgeEl) {
             if (chatFindingCount > 0) {
               badgeEl.className = "collapsed-badge findings";
               badgeEl.textContent = chatFindingCount + " finding" + (chatFindingCount !== 1 ? "s" : "");
+            } else if (showTokenUsage && (promptTok + completionTok) > 0) {
+              const total = promptTok + completionTok;
+              badgeEl.className = "collapsed-badge";
+              badgeEl.textContent = (total >= 1000 ? (total/1000).toFixed(1) + "k" : total) + " tokens";
             } else {
               badgeEl.style.display = "none";
             }
