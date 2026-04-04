@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 import { Logger } from "./utils/logger.js";
 import { BinaryManager } from "./binaryManager.js";
 import { OnboardingWebview } from "./onboardingWebview.js";
@@ -167,6 +169,49 @@ export async function activate(
 
   statusBar.setIdle();
   logger.info(`Archexa activated — ${binaryPath}`);
+
+  // 8. Check if .archexa/ is in .gitignore (one-time per workspace)
+  checkGitignore(ctx);
+}
+
+async function checkGitignore(ctx: vscode.ExtensionContext): Promise<void> {
+  const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!wsRoot) return;
+
+  // Only prompt once per workspace
+  const key = "archexa.gitignoreChecked";
+  if (ctx.workspaceState.get<boolean>(key)) return;
+
+  const gitignorePath = path.join(wsRoot, ".gitignore");
+
+  // Check if .gitignore exists and already contains .archexa
+  let content = "";
+  try {
+    content = fs.readFileSync(gitignorePath, "utf8");
+  } catch {
+    // No .gitignore — skip, user may not be using git
+    return;
+  }
+
+  const lines = content.split("\n").map(l => l.trim());
+  if (lines.some(l => l === ".archexa" || l === ".archexa/" || l === ".archexa/**")) {
+    void ctx.workspaceState.update(key, true);
+    return;
+  }
+
+  const choice = await vscode.window.showInformationMessage(
+    "Archexa stores config and output in .archexa/ — add it to .gitignore?",
+    "Add to .gitignore",
+    "Dismiss"
+  );
+
+  if (choice === "Add to .gitignore") {
+    const entries = "\n# Archexa (AI codebase intelligence)\n.archexa/\n.archexa_cache/\n";
+    fs.appendFileSync(gitignorePath, entries, "utf8");
+    vscode.window.showInformationMessage("Added .archexa/ and .archexa_cache/ to .gitignore");
+  }
+
+  void ctx.workspaceState.update(key, true);
 }
 
 export function deactivate(): void {}

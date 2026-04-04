@@ -20,7 +20,14 @@ export class ConfigManager {
 
     const workspaceRoot = workspaceFolders[0].uri.fsPath;
 
-    // 1. Check common locations
+    // 1. Extension-managed config in .archexa/
+    const extConfig = path.join(workspaceRoot, ".archexa", "config.yaml");
+    if (fs.existsSync(extConfig)) {
+      this.logger.info(`Found config: ${extConfig}`);
+      return extConfig;
+    }
+
+    // 2. User-managed config in project root
     for (const name of ["archexa.yaml", ".archexa.yaml"]) {
       const candidate = path.join(workspaceRoot, name);
       if (fs.existsSync(candidate)) {
@@ -29,7 +36,7 @@ export class ConfigManager {
       }
     }
 
-    // 2. Search nested directories (e.g. monorepo)
+    // 3. Search nested directories (e.g. monorepo)
     const found = await vscode.workspace.findFiles(
       "**/archexa.yaml",
       "**/node_modules/**",
@@ -40,14 +47,16 @@ export class ConfigManager {
       return found[0].fsPath;
     }
 
-    // 3. Silently create one using CLI init or minimal fallback
-    const configPath = path.join(workspaceRoot, "archexa.yaml");
-    this.createConfig(configPath, workspaceRoot);
-    this.logger.info(`Created config: ${configPath}`);
-    return configPath;
+    // 4. Create in .archexa/config.yaml
+    this.createConfig(extConfig, workspaceRoot);
+    this.logger.info(`Created config: ${extConfig}`);
+    return extConfig;
   }
 
   private createConfig(configPath: string, workspaceRoot: string): void {
+    const dir = path.dirname(configPath);
+    fs.mkdirSync(dir, { recursive: true });
+
     // Try CLI init first
     try {
       cp.execFileSync(

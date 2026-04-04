@@ -184,8 +184,8 @@ describe("ArchexaBridge", () => {
       onChunk: (chunk) => chunks.push(chunk),
     });
 
-    const tmpConfig = path.join(tmpDir, ".archexa-vscode-tmp.yaml");
-    assert.ok(fs.existsSync(tmpConfig), "Temp config should be created");
+    const tmpConfig = path.join(tmpDir, ".archexa", "config.yaml");
+    assert.ok(fs.existsSync(tmpConfig), "Extension config should be created in .archexa/");
     const content = fs.readFileSync(tmpConfig, "utf8");
     assert.ok(content.includes("archexa:"), "Should be valid YAML");
     assert.ok(content.includes("model:"), "Should include model setting");

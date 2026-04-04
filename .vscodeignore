@@ -10,7 +10,7 @@ tsconfig.json
 .vscode/**
 .mocharc.yml
 *.vsix
-.archexa-vscode-tmp.yaml
+.archexa/**
 .claude/**
 test-mock-binary.sh
 .gitignore

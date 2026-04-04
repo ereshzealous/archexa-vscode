@@ -684,7 +684,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) return;
     // Never overwrite a user-managed config — only write to the temp file
-    const configPath = path.join(workspaceRoot, ".archexa-vscode-tmp.yaml");
+    const dir = path.join(workspaceRoot, ".archexa");
+    fs.mkdirSync(dir, { recursive: true });
+    const configPath = path.join(dir, "config.yaml");
     fs.writeFileSync(configPath, generateConfigYaml(), "utf8");
     if (showNotification) {
       this.postMessage({ type: "saveConfirmed" });

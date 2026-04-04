@@ -60,7 +60,7 @@ export class ArchexaBridge {
     const verbose = logLevel === "DEBUG" || logLevel === "INFO";
 
     // Write/update config file with all current settings
-    const configPath = this.resolveOrWriteConfig(workspaceRoot, cfg);
+    const configPath = this.resolveOrWriteConfig(workspaceRoot);
 
     // Minimal CLI flags — everything else comes from the config file
     // CLI v0.4.0+: --stdout auto-disables ANSI color, so --no-color only needed without --stdout.
@@ -196,18 +196,17 @@ export class ArchexaBridge {
 
   /**
    * Resolve config priority:
-   * 1. Extension-managed tmp config (reflects VS Code settings / UI changes)
-   * 2. User-managed archexa.yaml / .archexa.yaml
+   * 1. Extension-managed config at .archexa/config.yaml (reflects VS Code settings)
+   * 2. User-managed archexa.yaml / .archexa.yaml in project root
    * 3. Initial config path from ConfigManager
-   * 4. Generate fresh from settings
+   * 4. Generate fresh from settings into .archexa/config.yaml
    */
   private resolveOrWriteConfig(
-    workspaceRoot: string,
-    cfg: vscode.WorkspaceConfiguration
+    workspaceRoot: string
   ): string {
     // Extension-managed config takes priority — it reflects the latest UI settings
-    const tmpConfig = path.join(workspaceRoot, ".archexa-vscode-tmp.yaml");
-    if (fs.existsSync(tmpConfig)) return tmpConfig;
+    const extConfig = path.join(workspaceRoot, ".archexa", "config.yaml");
+    if (fs.existsSync(extConfig)) return extConfig;
 
     for (const name of ["archexa.yaml", ".archexa.yaml"]) {
       const candidate = path.join(workspaceRoot, name);
@@ -216,18 +215,16 @@ export class ArchexaBridge {
     if (this.initialConfigPath && fs.existsSync(this.initialConfigPath)) {
       return this.initialConfigPath;
     }
-    return this.writeConfigFromSettings(workspaceRoot, cfg);
+    return this.writeConfigFromSettings(workspaceRoot);
   }
 
   /**
-   * Generate archexa.yaml from VS Code settings.
-   * Regenerated every run so changes are always reflected.
+   * Generate config from VS Code settings into .archexa/config.yaml.
    */
-  private writeConfigFromSettings(
-    workspaceRoot: string,
-    _cfg: vscode.WorkspaceConfiguration
-  ): string {
-    const dest = path.join(workspaceRoot, ".archexa-vscode-tmp.yaml");
+  private writeConfigFromSettings(workspaceRoot: string): string {
+    const dir = path.join(workspaceRoot, ".archexa");
+    fs.mkdirSync(dir, { recursive: true });
+    const dest = path.join(dir, "config.yaml");
     fs.writeFileSync(dest, generateConfigYaml(), "utf8");
     return dest;
   }
@@ -237,9 +234,10 @@ export class ArchexaBridge {
     cfg: vscode.WorkspaceConfiguration,
     runStartTime: number
   ): string | undefined {
-    const outputDir = cfg.get<string>("outputDir") ?? "generated";
-    // Check both the configured output dir and .archexa
-    for (const dir of [outputDir, ".archexa", "generated"]) {
+    const outputDir = cfg.get<string>("outputDir") ?? ".archexa";
+    // Check the configured output dir and .archexa as fallback
+    const dirs = new Set([outputDir, ".archexa"]);
+    for (const dir of dirs) {
       const genDir = path.join(workspaceRoot, dir);
       if (!fs.existsSync(genDir)) continue;
       const files = fs.readdirSync(genDir)

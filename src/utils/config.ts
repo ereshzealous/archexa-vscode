@@ -21,7 +21,7 @@ export const DEFAULTS = {
   deepByDefault: true,
   deepMaxIterations: 15,
   cacheEnabled: true,
-  outputDir: "generated",
+  outputDir: ".archexa",
   logLevel: "WARNING",
   maxFiles: 100,
   promptBudget: 120000,
@@ -97,7 +97,7 @@ export function generateConfigYaml(): string {
   }
 
   // Exclude patterns — merge defaults with user-configured patterns
-  const defaultExcludePatterns = [".archexa/**", ".archexa_cache/**", "generated/**"];
+  const defaultExcludePatterns = [".archexa/**", ".archexa_cache/**"];
   const userPatterns = cfg.get<string[]>("excludePatterns") ?? [];
   const allPatterns = [...new Set([...defaultExcludePatterns, ...userPatterns])];
   if (allPatterns.length > 0) {

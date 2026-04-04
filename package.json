@@ -456,7 +456,7 @@
         "archexa.excludePatterns": {
           "type": "array",
           "items": { "type": "string" },
-          "default": [".archexa/**", ".archexa_cache/**", "generated/**"],
+          "default": [".archexa/**", ".archexa_cache/**"],
           "description": "Glob patterns to exclude from file scanning (e.g. *.test.ts, vendor/**, migrations/**)."
         },
         "archexa.scanFocus": {
