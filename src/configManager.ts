@@ -50,8 +50,8 @@ export class ConfigManager {
   private createConfig(configPath: string, workspaceRoot: string): void {
     // Try CLI init first
     try {
-      cp.execSync(
-        `"${this.binaryPath}" init --out "${configPath}"`,
+      cp.execFileSync(
+        this.binaryPath, ["init", "--out", configPath],
         { cwd: workspaceRoot, timeout: 10000, stdio: "ignore" }
       );
       if (fs.existsSync(configPath)) return;

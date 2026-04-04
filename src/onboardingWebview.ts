@@ -99,12 +99,11 @@ export class OnboardingWebview {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Download failed: ${message}`);
-      vscode.window.showErrorMessage(`Archexa download failed: ${message}`, "Try Again")
-        .then((choice) => {
-          if (choice === "Try Again") {
-            void this.handleDownload();
-          }
-        });
+      // Show inline error in the webview so users can retry without losing context
+      this.panel?.webview.postMessage({
+        type: "error",
+        message: `Download failed: ${message}`,
+      });
     }
   }
 
@@ -141,7 +140,7 @@ export class OnboardingWebview {
     <div class="install-manifest">
       <div class="card-title">What gets installed</div>
       <div class="manifest-item"><span class="mi-icon">📦</span><span class="mi-label">Binary</span><span class="mi-value" id="plat-path">...</span></div>
-      <div class="manifest-item"><span class="mi-icon">📄</span><span class="mi-label">Config</span><span class="mi-value">./archexa.yaml (workspace root)</span></div>
+      <div class="manifest-item"><span class="mi-icon">📄</span><span class="mi-label">Config</span><span class="mi-value">archexa.yaml (auto-created on first run)</span></div>
       <div class="manifest-item"><span class="mi-icon">💾</span><span class="mi-label">Cache</span><span class="mi-value">.../bin/version.txt</span></div>
       <div class="manifest-item"><span class="mi-icon">≈</span><span class="mi-label"></span><span class="mi-value">20 MB disk space</span></div>
     </div>
@@ -167,11 +166,14 @@ export class OnboardingWebview {
       <div class="step pending" id="step-download"><span class="step-icon">○</span> Downloading bundle</div>
       <div class="step pending" id="step-verify"><span class="step-icon">○</span> Verifying integrity</div>
       <div class="step pending" id="step-install"><span class="step-icon">○</span> Installing to extension dir</div>
-      <div class="step pending" id="step-config"><span class="step-icon">○</span> Creating archexa.yaml</div>
       <div class="step pending" id="step-ready"><span class="step-icon">○</span> Ready</div>
     </div>
 
     <div class="terminal-box" id="terminal"></div>
+    <div id="downloadError" style="display:none;margin-top:12px;padding:10px 14px;background:var(--vscode-inputValidation-errorBackground,#5a1d1d);color:var(--vscode-errorForeground,#f44747);border-radius:6px;font-size:12px">
+      <div id="downloadErrorMsg"></div>
+      <button id="retryBtn" style="margin-top:8px;padding:4px 14px;border:none;border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer;font-size:11px;font-weight:600">Retry Download</button>
+    </div>
   </div>
 
   <!-- PHASE 3 — Done -->
@@ -193,7 +195,7 @@ export class OnboardingWebview {
 
     <div class="section-label">Config file</div>
     <div class="copy-box">
-      <span class="copy-text">./archexa.yaml</span>
+      <span class="copy-text">archexa.yaml — auto-created on first run</span>
       <button class="copy-btn" id="copyConfigBtn">Copy</button>
     </div>
 
@@ -219,7 +221,6 @@ export class OnboardingWebview {
       "Downloading bundle": "step-download",
       "Verifying integrity": "step-verify",
       "Installing to extension dir": "step-install",
-      "Creating archexa.yaml": "step-config",
       "Ready": "step-ready",
     };
 
@@ -229,6 +230,9 @@ export class OnboardingWebview {
       vscodeApi.postMessage({ type: "startDownload" });
       document.getElementById("phase1").classList.add("hidden");
       document.getElementById("phase2").classList.remove("hidden");
+      // Reset error state if retrying
+      const errEl = document.getElementById("downloadError");
+      if (errEl) errEl.style.display = "none";
     });
 
     document.getElementById("getStartedBtn").addEventListener("click", () => {
@@ -245,6 +249,11 @@ export class OnboardingWebview {
 
     document.getElementById("copyConfigBtn").addEventListener("click", () => {
       navigator.clipboard.writeText("./archexa.yaml");
+    });
+
+    document.getElementById("retryBtn").addEventListener("click", () => {
+      document.getElementById("downloadError").style.display = "none";
+      vscodeApi.postMessage({ type: "startDownload" });
     });
 
     window.addEventListener("message", (event) => {
@@ -285,6 +294,13 @@ export class OnboardingWebview {
           const terminal = document.getElementById("terminal");
           terminal.textContent += msg.termLine + "\\n";
           terminal.scrollTop = terminal.scrollHeight;
+          break;
+        }
+
+        case "error": {
+          const errEl = document.getElementById("downloadError");
+          document.getElementById("downloadErrorMsg").textContent = msg.message || "Download failed";
+          errEl.style.display = "block";
           break;
         }
 

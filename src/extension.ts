@@ -57,9 +57,12 @@ export async function activate(
 
   // Always register these commands so they work even without binary
   ctx.subscriptions.push(
-    vscode.commands.registerCommand("archexa.openSettings", () =>
-      sidebar.showSettings()
-    ),
+    vscode.commands.registerCommand("archexa.openSettings", async () => {
+      // Ensure sidebar is visible before switching to settings screen
+      await vscode.commands.executeCommand("workbench.view.extension.archexa-sidebar");
+      // Small delay to ensure the webview view is resolved
+      setTimeout(() => sidebar.showSettings(), 150);
+    }),
     vscode.commands.registerCommand("archexa.showSetup", () => {
       const onboarding = new OnboardingWebview(ctx, binManager, logger);
       void onboarding.show();

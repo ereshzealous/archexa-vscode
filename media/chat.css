@@ -581,6 +581,127 @@ body {
   animation: fadeSlideUp 0.14s ease-out;
 }
 
+/* ── Collapsible message accordion ── */
+.msg-collapsed-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--vscode-editor-lineHighlightBackground);
+  border: 1px solid var(--vscode-editorGroup-border);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: background 0.12s;
+  user-select: none;
+}
+.msg-collapsed-bar:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.msg-collapsed-bar:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+.msg-collapsed-bar .collapsed-arrow {
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.msg-collapsed-bar .collapsed-label {
+  font-weight: 600;
+  color: var(--vscode-editor-foreground);
+}
+.msg-collapsed-bar .collapsed-preview {
+  color: var(--vscode-descriptionForeground);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+.msg-collapsed-bar .collapsed-badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.msg-collapsed-bar .collapsed-badge.findings {
+  background: rgba(204, 120, 0, 0.18);
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+.msg-collapsed-bar .collapsed-badge.running {
+  color: var(--vscode-textLink-foreground);
+  background: none;
+  font-style: italic;
+  font-weight: 400;
+}
+.msg-collapsed-bar .collapsed-time {
+  color: var(--vscode-descriptionForeground);
+  font-size: 9.5px;
+  flex-shrink: 0;
+}
+
+/* Inline progress bar under the bar during streaming */
+.msg-bar-progress {
+  height: 2px;
+  background: var(--vscode-editorGroup-border);
+  border-radius: 0 0 5px 5px;
+  overflow: hidden;
+  margin-top: -1px;
+  display: none;
+}
+.msg-streaming .msg-bar-progress {
+  display: block;
+}
+.msg-bar-progress-fill {
+  height: 100%;
+  width: 30%;
+  background: var(--vscode-textLink-foreground, #4493f8);
+  border-radius: 2px;
+  animation: progressSlide 1.8s ease-in-out infinite;
+}
+
+/* Streaming: bar visible, not clickable for collapse */
+.msg-streaming .msg-collapsed-bar {
+  cursor: default;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
+}
+.msg-streaming .msg-collapsed-bar:hover {
+  background: var(--vscode-editor-lineHighlightBackground);
+}
+.msg-streaming .collapsed-arrow {
+  visibility: hidden;
+}
+
+/* Collapsed state: hide body, ▸ arrow */
+.msg-assistant.collapsed .live-step,
+.msg-assistant.collapsed .investigation-loading,
+.msg-assistant.collapsed .msg-content,
+.msg-assistant.collapsed .msg-toolbar,
+.msg-assistant.collapsed .inv-details,
+.msg-assistant.collapsed .findings-panel,
+.msg-assistant.collapsed > div[id^="findings-"] {
+  display: none !important;
+}
+.msg-assistant.collapsed .collapsed-arrow {
+  transform: rotate(0deg);
+}
+
+/* Expanded non-streaming: ▾ arrow, spacing below bar */
+.msg-assistant:not(.collapsed):not(.msg-streaming) .msg-collapsed-bar {
+  margin-bottom: 6px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
+}
+.msg-assistant:not(.collapsed) .collapsed-arrow {
+  transform: rotate(90deg);
+}
+
 .msg-meta {
   display: flex;
   align-items: center;
@@ -1533,4 +1654,25 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+/* ═══════════════════════════════════════════════════════
+   RESPONSIVE — narrow sidebar (< 280px)
+   ═══════════════════════════════════════════════════════ */
+
+@media (max-width: 280px) {
+  .cmd-card { padding: 8px 10px; }
+  .cmd-card-icon { width: 28px; height: 28px; }
+  .cmd-card-icon svg { width: 14px; height: 14px; }
+  .cmd-card-tagline { display: none; }
+  .cmd-card-what { display: none; }
+  .cmd-row-desc { display: none; }
+  .rf-pills { flex-wrap: wrap; }
+  .rf-focus-row { flex-direction: column; }
+  .rf-focus-row .rf-send-btn { width: 100%; margin-top: 4px; }
+  .btn-row { flex-direction: column; }
+  .btn-row button { width: 100%; }
+  .settings-input-row { flex-direction: column; }
+  .settings-input-row input { width: 100%; }
+  .settings-input-row .show-hide-btn { width: 100%; }
 }

@@ -92,6 +92,14 @@ export class ArchexaBridge {
       });
 
       let cancelled = false;
+      let doneFired = false;
+      // Wrap onDone so it fires at most once (JSON done event vs proc close)
+      const originalOnDone = opts.onDone;
+      opts = { ...opts, onDone: originalOnDone ? (d, p, c) => {
+        if (doneFired) return;
+        doneFired = true;
+        originalOnDone(d, p, c);
+      } : undefined };
       const cancelDisposable = opts.token?.onCancellationRequested(() => {
         if (cancelled) return;
         cancelled = true;
@@ -171,7 +179,7 @@ export class ArchexaBridge {
 
         if (!useStdout) {
           opts.onProgress?.(3, 3, "Reading output", "");
-          const outputFile = this.findOutputFile(workspaceRoot, cfg);
+          const outputFile = this.findOutputFile(workspaceRoot, cfg, startTime);
           if (outputFile) {
             opts.onChunk(fs.readFileSync(outputFile, "utf8"));
             this.logger.info(`Read output from: ${outputFile}`);
@@ -187,14 +195,20 @@ export class ArchexaBridge {
   }
 
   /**
-   * Resolve config: prefer user's archexa.yaml, otherwise write one from settings.
-   * The config file is the single source of truth for the CLI — model, endpoint,
-   * deep mode, limits, etc. all come from here, not from CLI flags.
+   * Resolve config priority:
+   * 1. Extension-managed tmp config (reflects VS Code settings / UI changes)
+   * 2. User-managed archexa.yaml / .archexa.yaml
+   * 3. Initial config path from ConfigManager
+   * 4. Generate fresh from settings
    */
   private resolveOrWriteConfig(
     workspaceRoot: string,
     cfg: vscode.WorkspaceConfiguration
   ): string {
+    // Extension-managed config takes priority — it reflects the latest UI settings
+    const tmpConfig = path.join(workspaceRoot, ".archexa-vscode-tmp.yaml");
+    if (fs.existsSync(tmpConfig)) return tmpConfig;
+
     for (const name of ["archexa.yaml", ".archexa.yaml"]) {
       const candidate = path.join(workspaceRoot, name);
       if (fs.existsSync(candidate)) return candidate;
@@ -220,7 +234,8 @@ export class ArchexaBridge {
 
   private findOutputFile(
     workspaceRoot: string,
-    cfg: vscode.WorkspaceConfiguration
+    cfg: vscode.WorkspaceConfiguration,
+    runStartTime: number
   ): string | undefined {
     const outputDir = cfg.get<string>("outputDir") ?? "generated";
     // Check both the configured output dir and .archexa
@@ -231,7 +246,8 @@ export class ArchexaBridge {
         .filter((f) => f.endsWith(".md"))
         .map((f) => ({ path: path.join(genDir, f), mtime: fs.statSync(path.join(genDir, f)).mtimeMs }))
         .sort((a, b) => b.mtime - a.mtime);
-      if (files.length > 0 && Date.now() - files[0].mtime < 120_000) {
+      // Only accept files modified after this run started
+      if (files.length > 0 && files[0].mtime >= runStartTime) {
         return files[0].path;
       }
     }

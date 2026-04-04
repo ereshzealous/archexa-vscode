@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * as crypto from "crypto";
 import * as https from "https";
 import * as http from "http";
 import * as fs from "fs";
@@ -11,6 +10,8 @@ import { StatusBarItem } from "./statusBarItem.js";
 import { Logger } from "./utils/logger.js";
 import { getNonce } from "./utils/platform.js";
 import { generateConfigYaml } from "./utils/config.js";
+import { linkifyFileRefs } from "./utils/html.js";
+import { parseCommand as parseCommandFn, ParsedCommand } from "./utils/commandParser.js";
 
 export interface HistoryEntry {
   id: string;
@@ -18,6 +19,7 @@ export interface HistoryEntry {
   title: string;
   timestamp: number;
   markdown: string;
+  status?: "cancelled" | "error";
   filePath?: string;
   question?: string;
 }
@@ -30,14 +32,6 @@ export interface ChatServices {
   extensionUri: vscode.Uri;
 }
 
-interface ParsedCommand {
-  command: string;
-  cliCommand: string;
-  args: string[];
-  label: string;
-  icon: string;
-}
-
 function getMaxHistory(): number {
   return vscode.workspace.getConfiguration("archexa").get<number>("maxHistory") ?? 30;
 }
@@ -47,37 +41,19 @@ const CMD_ICONS: Record<string, string> = {
   impact: "\u25C7", gist: "\u25AA", analyze: "\u25AB",
 };
 
-const FILE_EXTS = "py|ts|tsx|js|jsx|go|java|rs|rb|cs|kt|cpp|c|h|hpp|php|yaml|yml|json|md|toml|cfg|ini|sh|bash|sql|html|css|scss|xml|proto|graphql|tf|hcl";
-
-function linkifyFileRefs(html: string): string {
-  const pattern = new RegExp(
-    `(?<!\\/\\/)(?:^|(?<=[ \\t(>"'\`]))` +
-    `([\\w./@-]+\\.(?:${FILE_EXTS})):(\\d+)` +
-    `(?=[ \\t)<"'\`,;]|$)`,
-    "gm"
-  );
-  return html.replace(pattern, (_match, filePath: string, line: string) => {
-    const escaped = filePath.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    return `<a class="file-link" data-file="${escaped}" data-line="${line}" title="Open ${escaped}:${line}">${escaped}:${line}</a>`;
-  });
-}
-
-function detectIntent(text: string): string | null {
-  const s = text.toLowerCase();
-  if (/\berror\b|exception|failing|crash|why is|traceback|not work|decode|typeerror|stacktrace/.test(s)) return "diagnose";
-  if (/\breview\b|check|securi|bug|vulnerab|\bsql\b|jwt|audit|issues?\b/.test(s)) return "review";
-  if (/\bexplain\b|what (does|is)|how does|understand|purpose|walk me/.test(s)) return "query";
-  if (/\bimpact\b|what breaks|what happens if|change|affect|downstream/.test(s)) return "impact";
-  return null;
+/** Per-run state to isolate concurrent/overlapping command runs */
+interface RunState {
+  tokenSource: vscode.CancellationTokenSource;
+  streamBuffer: string;
+  debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  findingsCleared?: boolean;
 }
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
 
-  // Chat state
-  private tokenSource: vscode.CancellationTokenSource | undefined;
-  private streamBuffer = "";
-  private debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  // Chat state — per-run isolation prevents cross-contamination
+  private activeRun: RunState | undefined;
   private responseBuffers = new Map<string, string>();
   private logLines = new Map<string, string[]>();
 
@@ -114,20 +90,34 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     view.webview.html = this.getHtml(chatCssUri, nonce);
     this.refresh();
 
-    view.webview.onDidReceiveMessage(
-      (msg: Record<string, unknown>) => void this.onMessage(msg)
+    // Track disposables to prevent listener leaks on view recreation
+    const disposables: vscode.Disposable[] = [];
+
+    disposables.push(
+      view.webview.onDidReceiveMessage(
+        (msg: Record<string, unknown>) => void this.onMessage(msg)
+      )
     );
 
     // Re-populate when the view becomes visible again (e.g. switching back from another plugin)
-    view.onDidChangeVisibility(() => {
-      if (view.visible) this.refresh();
-    });
+    disposables.push(
+      view.onDidChangeVisibility(() => {
+        if (view.visible) this.refresh();
+      })
+    );
 
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("archexa")) {
-        this.refresh();
-        this.sendConfig();
-      }
+    disposables.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration("archexa")) {
+          this.refresh();
+          this.sendConfig();
+        }
+      })
+    );
+
+    // Dispose all listeners when the view is disposed
+    view.onDidDispose(() => {
+      disposables.forEach(d => d.dispose());
     });
   }
 
@@ -198,8 +188,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         break;
       }
       case "save":
-        this.syncConfigFile();
-        this.postMessage({ type: "saveConfirmed" });
+        // Go through debounced path so any in-flight cfg.update() calls settle first
+        this.scheduleSyncConfigFile(true);
         break;
       case "verifyBinary": {
         const binPath = vscode.workspace
@@ -207,8 +197,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           .get<string>("binaryPath");
         if (binPath) {
           try {
-            const { execSync } = await import("child_process");
-            const out = execSync(`"${binPath}" --version`, { timeout: 5000 })
+            const cp = await import("child_process");
+            const out = cp.execFileSync(binPath, ["--version"], { timeout: 5000 })
               .toString()
               .trim();
             vscode.window.showInformationMessage(`Archexa binary: ${out}`);
@@ -263,11 +253,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   /** Update an existing history entry's markdown (used when run completes) */
-  private updateHistoryEntry(id: string, markdown: string): void {
+  private updateHistoryEntry(id: string, markdown: string, status?: "cancelled" | "error"): void {
     const entries = this.ctx.workspaceState.get<HistoryEntry[]>("archexa.history", []);
     const entry = entries.find(e => e.id === id);
     if (entry) {
       entry.markdown = markdown;
+      if (status) entry.status = status;
       void this.ctx.workspaceState.update("archexa.history", entries);
       this.refresh();
     }
@@ -284,6 +275,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       vscode.window.showWarningMessage("Archexa services not ready. Please wait for initialization.");
       return;
     }
+    if (!vscode.workspace.workspaceFolders?.length) {
+      vscode.window.showWarningMessage("Open a folder or workspace first to use Archexa.");
+      return;
+    }
+
+    // Cancel any active run before starting a new one
+    this.cancelCurrentRun();
 
     // Reveal the sidebar and switch to chat screen
     if (this.view) {
@@ -301,9 +299,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       label, command, text: displayText,
     });
 
-    this.tokenSource = new vscode.CancellationTokenSource();
-    this.services.statusBar.setRunning(label, this.tokenSource);
-    this.streamBuffer = "";
+    // Isolated per-run state — prevents cross-contamination between overlapping runs
+    const run: RunState = {
+      tokenSource: new vscode.CancellationTokenSource(),
+      streamBuffer: "",
+      debounceTimer: undefined,
+    };
+    this.activeRun = run;
+    this.services.statusBar.setRunning(label, run.tokenSource);
     this.logLines.set(msgId, []);
 
     // Add "running" history entry immediately
@@ -317,12 +320,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     });
 
     try {
-      const result = await this.services.bridge.run({
+      await this.services.bridge.run({
         command,
         args,
         onChunk: (chunk) => {
-          this.streamBuffer += chunk;
-          this.debounceStreamRender(msgId);
+          run.streamBuffer += chunk;
+          this.debounceStreamRender(msgId, run);
         },
         onProgress: (phase, total, progressLabel, detail) => {
           this.postMessage({ type: "chatProgress", id: msgId, phase, total, label: progressLabel, detail });
@@ -341,35 +344,39 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         onDone: (durationMs, promptTokens, completionTokens) => {
           this.postMessage({ type: "assistantDone", id: msgId, durationMs, promptTokens, completionTokens });
         },
-        token: this.tokenSource.token,
+        token: run.tokenSource.token,
       });
 
       // Final render
-      if (this.debounceTimer) clearTimeout(this.debounceTimer);
-      const html = linkifyFileRefs(marked.parse(this.streamBuffer) as string);
+      if (run.debounceTimer) clearTimeout(run.debounceTimer);
+      const html = linkifyFileRefs(marked.parse(run.streamBuffer) as string);
       this.postMessage({ type: "assistantChunk", id: msgId, html });
-      this.responseBuffers.set(msgId, this.streamBuffer);
+      this.responseBuffers.set(msgId, run.streamBuffer);
 
-      this.postMessage({ type: "assistantDone", id: msgId, durationMs: result.durationMs });
+      // assistantDone already sent by onDone callback with full stats — only update status bar
       this.services.statusBar.setDone(`${label} complete`);
 
       // Update the "running" history entry with final markdown
-      this.updateHistoryEntry(msgId, this.streamBuffer);
+      this.updateHistoryEntry(msgId, run.streamBuffer);
     } catch (err: unknown) {
-      if (this.debounceTimer) clearTimeout(this.debounceTimer);
-      if (this.tokenSource?.token.isCancellationRequested) {
+      if (run.debounceTimer) clearTimeout(run.debounceTimer);
+      if (run.tokenSource.token.isCancellationRequested) {
         this.postMessage({ type: "assistantCancelled", id: msgId });
         this.services.statusBar.setIdle();
+        // Mark history entry as cancelled so it stops showing as "running"
+        const partial = run.streamBuffer || "*Cancelled by user.*";
+        this.updateHistoryEntry(msgId, partial, "cancelled");
       } else {
         const message = err instanceof Error ? err.message : String(err);
         this.postMessage({ type: "assistantError", id: msgId, message });
         this.services.statusBar.setError(message);
         this.services.logger.error(`${label} failed: ${message}`);
+        this.updateHistoryEntry(msgId, run.streamBuffer || `*Error: ${message}*`, "error");
       }
     } finally {
       this.hideProgress();
-      this.tokenSource?.dispose();
-      this.tokenSource = undefined;
+      run.tokenSource.dispose();
+      if (this.activeRun === run) this.activeRun = undefined;
     }
   }
 
@@ -406,35 +413,47 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   // ─── Chat methods ─────────────────────────────────────────
 
+  /** Cached git file list per workspace folder — invalidated on new completions after 10s */
+  private fileListCache: { files: string[]; ts: number } | undefined;
+
   private async handleFileComplete(prefix: string): Promise<void> {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders?.length) return;
 
-    let files: string[] = [];
+    let files: string[];
 
-    // Try git first — fast, respects .gitignore, includes untracked non-ignored files
-    for (const folder of folders) {
-      try {
-        const cp = await import("child_process");
-        // --cached = tracked files, --others --exclude-standard = untracked but not gitignored
-        const out = cp.execSync("git ls-files --cached --others --exclude-standard", {
-          cwd: folder.uri.fsPath, timeout: 3000, encoding: "utf8", maxBuffer: 2 * 1024 * 1024,
-        });
-        const folderFiles = out.split("\n").filter(Boolean);
-        // For multi-root, prefix with folder name
-        if (folders.length > 1) {
-          files.push(...folderFiles.map(f => `${folder.name}/${f}`));
-        } else {
-          files.push(...folderFiles);
-        }
-      } catch {
-        // Not a git repo or git not installed — fallback to findFiles for this folder
-        const glob = new vscode.RelativePattern(folder, prefix.includes("/") ? `${prefix}**` : `**/${prefix}**`);
+    // Use cached file list if fresh (< 10s old)
+    if (this.fileListCache && Date.now() - this.fileListCache.ts < 10_000) {
+      files = this.fileListCache.files;
+    } else {
+      files = [];
+      // Use async spawn instead of blocking execSync
+      for (const folder of folders) {
         try {
-          const uris = await vscode.workspace.findFiles(glob, undefined, 50);
-          files.push(...uris.map(u => vscode.workspace.asRelativePath(u)));
-        } catch { /* skip this folder */ }
+          const cp = await import("child_process");
+          const folderFiles = await new Promise<string[]>((resolve, reject) => {
+            const proc = cp.execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+              cwd: folder.uri.fsPath, timeout: 3000, maxBuffer: 2 * 1024 * 1024,
+            }, (err, stdout) => {
+              if (err) { reject(err); return; }
+              resolve(stdout.split("\n").filter(Boolean));
+            });
+            proc.on("error", reject);
+          });
+          if (folders.length > 1) {
+            files.push(...folderFiles.map(f => `${folder.name}/${f}`));
+          } else {
+            files.push(...folderFiles);
+          }
+        } catch {
+          const glob = new vscode.RelativePattern(folder, prefix.includes("/") ? `${prefix}**` : `**/${prefix}**`);
+          try {
+            const uris = await vscode.workspace.findFiles(glob, undefined, 50);
+            files.push(...uris.map(u => vscode.workspace.asRelativePath(u)));
+          } catch { /* skip this folder */ }
+        }
       }
+      this.fileListCache = { files, ts: Date.now() };
     }
 
     const matches = files
@@ -462,10 +481,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private cancelCurrentRun(): void {
-    if (this.tokenSource) {
-      this.tokenSource.cancel();
-      this.tokenSource.dispose();
-      this.tokenSource = undefined;
+    if (this.activeRun) {
+      this.activeRun.tokenSource.cancel();
+      this.activeRun.tokenSource.dispose();
+      if (this.activeRun.debounceTimer) clearTimeout(this.activeRun.debounceTimer);
+      this.activeRun = undefined;
     }
   }
 
@@ -474,6 +494,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       vscode.window.showWarningMessage("Archexa services not ready. Please wait for initialization.");
       return;
     }
+    if (!vscode.workspace.workspaceFolders?.length) {
+      vscode.window.showWarningMessage("Open a folder or workspace first to use Archexa.");
+      return;
+    }
+
+    // Cancel any active run before starting a new one
+    this.cancelCurrentRun();
 
     const parsed = this.parseCommand(text);
     const msgId = Date.now().toString();
@@ -484,16 +511,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       label: parsed.label, command: parsed.command, text,
     });
 
-    this.tokenSource = new vscode.CancellationTokenSource();
-    this.services.statusBar.setRunning(parsed.label, this.tokenSource);
-    this.streamBuffer = "";
+    // Isolated per-run state
+    const run: RunState = {
+      tokenSource: new vscode.CancellationTokenSource(),
+      streamBuffer: "",
+      debounceTimer: undefined,
+    };
+    this.activeRun = run;
+    this.services.statusBar.setRunning(parsed.label, run.tokenSource);
     this.logLines.set(msgId, []);
 
     // Add "running" entry to history immediately so it appears on home screen
     const validCmds = ["diagnose", "review", "query", "impact", "gist", "analyze"] as const;
     const historyCmd = validCmds.includes(parsed.cliCommand as typeof validCmds[number])
       ? parsed.cliCommand as typeof validCmds[number] : "query" as const;
-    const historyId = msgId; // use msgId so we can update it later
+    const historyId = msgId;
     this.addToHistory({
       id: historyId, cmd: historyCmd,
       title: `${parsed.label} \u2014 ${text.slice(0, 48)}`,
@@ -501,19 +533,26 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     });
 
     try {
-      const result = await this.services.bridge.run({
+      await this.services.bridge.run({
         command: parsed.cliCommand,
         args: parsed.args,
         onChunk: (chunk) => {
-          this.streamBuffer += chunk;
-          this.debounceStreamRender(msgId);
+          run.streamBuffer += chunk;
+          this.debounceStreamRender(msgId, run);
         },
         onProgress: (phase, total, label, detail) => {
           this.postMessage({ type: "chatProgress", id: msgId, phase, total, label, detail });
         },
         onFinding: parsed.cliCommand === "review" ? (f: ReviewFinding) => {
           const cfg = vscode.workspace.getConfiguration("archexa");
-          if (cfg.get<boolean>("showInlineFindings")) this.services!.diagnostics.addFinding(f);
+          if (cfg.get<boolean>("showInlineFindings")) {
+            // Clear stale findings on first finding of a new review if configured
+            if (cfg.get<boolean>("clearFindingsOnNewReview", true) && !run.findingsCleared) {
+              this.services!.diagnostics.clearAll();
+              run.findingsCleared = true;
+            }
+            this.services!.diagnostics.addFinding(f);
+          }
           this.postMessage({ type: "finding", id: msgId, finding: f });
         } : undefined,
         onLog: (line) => {
@@ -523,110 +562,53 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         onDone: (durationMs, promptTokens, completionTokens) => {
           this.postMessage({ type: "assistantDone", id: msgId, durationMs, promptTokens, completionTokens });
         },
-        token: this.tokenSource.token,
+        token: run.tokenSource.token,
       });
 
       // Final render
-      if (this.debounceTimer) clearTimeout(this.debounceTimer);
-      const html = linkifyFileRefs(marked.parse(this.streamBuffer) as string);
+      if (run.debounceTimer) clearTimeout(run.debounceTimer);
+      const html = linkifyFileRefs(marked.parse(run.streamBuffer) as string);
       this.postMessage({ type: "assistantChunk", id: msgId, html });
-      this.responseBuffers.set(msgId, this.streamBuffer);
+      this.responseBuffers.set(msgId, run.streamBuffer);
 
-      this.postMessage({ type: "assistantDone", id: msgId, durationMs: result.durationMs });
+      // assistantDone already sent by onDone callback with full stats — only update status bar
       this.services.statusBar.setDone(`${parsed.label} complete`);
 
       // Update the "running" history entry with the final markdown
-      this.updateHistoryEntry(historyId, this.streamBuffer);
+      this.updateHistoryEntry(historyId, run.streamBuffer);
     } catch (err: unknown) {
-      if (this.debounceTimer) clearTimeout(this.debounceTimer);
-      if (this.tokenSource?.token.isCancellationRequested) {
+      if (run.debounceTimer) clearTimeout(run.debounceTimer);
+      if (run.tokenSource.token.isCancellationRequested) {
         this.postMessage({ type: "assistantCancelled", id: msgId });
         this.services.statusBar.setIdle();
+        const partial = run.streamBuffer || "*Cancelled by user.*";
+        this.updateHistoryEntry(historyId, partial, "cancelled");
       } else {
         const message = err instanceof Error ? err.message : String(err);
         this.postMessage({ type: "assistantError", id: msgId, message });
         this.services.statusBar.setError(message);
         this.services.logger.error(`Chat failed: ${message}`);
+        this.updateHistoryEntry(historyId, run.streamBuffer || `*Error: ${message}*`, "error");
       }
     } finally {
-      this.tokenSource?.dispose();
-      this.tokenSource = undefined;
+      run.tokenSource.dispose();
+      if (this.activeRun === run) this.activeRun = undefined;
     }
   }
 
-  private debounceStreamRender(msgId: string): void {
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => {
-      const html = linkifyFileRefs(marked.parse(this.streamBuffer) as string);
+  private debounceStreamRender(msgId: string, run: RunState): void {
+    if (run.debounceTimer) clearTimeout(run.debounceTimer);
+    // Adaptive debounce: increase interval as buffer grows to avoid O(n²) re-parsing
+    const bufLen = run.streamBuffer.length;
+    const interval = bufLen < 5_000 ? 80 : bufLen < 20_000 ? 200 : bufLen < 100_000 ? 500 : 1000;
+    run.debounceTimer = setTimeout(() => {
+      const html = linkifyFileRefs(marked.parse(run.streamBuffer) as string);
       this.postMessage({ type: "assistantChunk", id: msgId, html });
-    }, 80);
+    }, interval);
   }
 
   private parseCommand(text: string): ParsedCommand {
-    if (text.startsWith("/review")) {
-      const rest = text.slice(7).trim();
-      if (rest === "--changed" || rest === "changes" || rest === "changed") {
-        return { command: "review", cliCommand: "review", args: ["--changed"], label: "Review Changes", icon: "search" };
-      }
-      if (rest.startsWith("--")) return { command: "review", cliCommand: "review", args: rest.split(/\s+/), label: "Review", icon: "search" };
-      if (rest) {
-        // Handle comma-separated file targets from chips
-        const files = rest.split(",").map(f => f.trim()).filter(Boolean);
-        const label = files.length > 1
-          ? `Review ${files.length} files`
-          : `Review ${path.basename(files[0])}`;
-        return { command: "review", cliCommand: "review", args: ["--target", rest], label, icon: "search" };
-      }
-      const f = this.getCurrentFileRelPath();
-      return f
-        ? { command: "review", cliCommand: "review", args: ["--target", f], label: `Review ${path.basename(f)}`, icon: "search" }
-        : { command: "review", cliCommand: "review", args: [], label: "Review", icon: "search" };
-    }
-    if (text.startsWith("/impact")) {
-      const rest = text.slice(7).trim();
-      if (rest.startsWith("--")) return { command: "impact", cliCommand: "impact", args: rest.split(/\s+/), label: "Impact", icon: "zap" };
-      const parts = rest.split(/\s+/);
-      const target = parts[0] || this.getCurrentFileRelPath() || "";
-      const query = parts.slice(1).join(" ");
-      const args = target ? ["--target", target] : [];
-      if (query) args.push("--query", query);
-      // Handle comma-separated file targets from chips
-      const targetFiles = target.split(",").filter(Boolean);
-      const impactLabel = targetFiles.length > 1
-        ? `Impact ${targetFiles.length} files`
-        : `Impact ${target ? path.basename(target) : ""}`;
-      return { command: "impact", cliCommand: "impact", args, label: impactLabel, icon: "zap" };
-    }
-    if (text.startsWith("/diagnose")) {
-      const rest = text.slice(9).trim();
-      return rest
-        ? { command: "diagnose", cliCommand: "diagnose", args: ["--error", rest.slice(0, 3000)], label: "Diagnose", icon: "bug" }
-        : { command: "diagnose", cliCommand: "diagnose", args: [], label: "Diagnose", icon: "bug" };
-    }
-    if (text.startsWith("/gist")) return { command: "gist", cliCommand: "gist", args: [], label: "Gist", icon: "book" };
-    if (text.startsWith("/analyze")) return { command: "analyze", cliCommand: "analyze", args: [], label: "Analyze", icon: "graph" };
-    if (text.startsWith("/query")) {
-      const rest = text.slice(6).trim();
-      return { command: "query", cliCommand: "query", args: ["--query", rest || text], label: "Query", icon: "comment" };
-    }
-
-    const intent = detectIntent(text);
-    if (intent === "diagnose") {
-      return { command: "diagnose", cliCommand: "diagnose", args: ["--error", text.slice(0, 3000)], label: "Diagnose", icon: "bug" };
-    }
-    if (intent === "review") {
-      const f = this.getCurrentFileRelPath();
-      return f
-        ? { command: "review", cliCommand: "review", args: ["--target", f], label: `Review ${path.basename(f)}`, icon: "search" }
-        : { command: "query", cliCommand: "query", args: ["--query", text], label: "Query", icon: "comment" };
-    }
-    if (intent === "impact") {
-      const f = this.getCurrentFileRelPath();
-      const args = f ? ["--target", f, "--query", text] : ["--query", text];
-      return { command: f ? "impact" : "query", cliCommand: f ? "impact" : "query", args, label: f ? `Impact ${path.basename(f)}` : "Query", icon: f ? "zap" : "comment" };
-    }
-
-    return { command: "query", cliCommand: "query", args: ["--query", text], label: "Query", icon: "comment" };
+    return parseCommandFn(text, this.getCurrentFileRelPath());
   }
 
   private getCurrentFileRelPath(): string | undefined {
@@ -668,7 +650,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const cfg = vscode.workspace.getConfiguration("archexa");
     const config: Record<string, unknown> = {};
     const props = [
-      "apiKey", "model", "endpoint", "binaryPath", "binaryVersion",
+      "model", "endpoint", "binaryPath", "binaryVersion",
       "deepByDefault", "deepMaxIterations", "cacheEnabled",
       "showInlineFindings", "autoReviewOnSave", "clearFindingsOnNewReview",
       "showTokenUsage", "outputDir",
@@ -680,20 +662,33 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     for (const prop of props) {
       config[prop] = cfg.get(prop);
     }
+    // Never send full API key to webview — only masked indicator
+    const apiKey = cfg.get<string>("apiKey") || process.env.OPENAI_API_KEY || "";
+    config.hasApiKey = !!apiKey;
+    config.apiKeyMasked = apiKey ? apiKey.slice(0, 3) + "..." + apiKey.slice(-4) : "";
     this.postMessage({ type: "init", config });
   }
 
-  private scheduleSyncConfigFile(): void {
+  private pendingSyncNotification = false;
+
+  private scheduleSyncConfigFile(showNotification = false): void {
+    if (showNotification) this.pendingSyncNotification = true;
     if (this.syncTimer) clearTimeout(this.syncTimer);
-    this.syncTimer = setTimeout(() => this.syncConfigFile(), 1000);
+    this.syncTimer = setTimeout(() => {
+      this.syncConfigFile(this.pendingSyncNotification);
+      this.pendingSyncNotification = false;
+    }, 1000);
   }
 
-  private syncConfigFile(): void {
+  private syncConfigFile(showNotification = false): void {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) return;
-    const configPath = path.join(workspaceRoot, "archexa.yaml");
+    // Never overwrite a user-managed config — only write to the temp file
+    const configPath = path.join(workspaceRoot, ".archexa-vscode-tmp.yaml");
     fs.writeFileSync(configPath, generateConfigYaml(), "utf8");
-    vscode.window.showInformationMessage(`Saved ${configPath}`);
+    if (showNotification) {
+      this.postMessage({ type: "saveConfirmed" });
+    }
   }
 
   private async testConnection(): Promise<void> {
@@ -899,6 +894,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       padding: 5px 12px; cursor: pointer; font-size: 11px;
     }
     .history-item:hover { background: var(--vscode-list-hoverBackground); }
+    .history-item.cancelled .history-icon { color: var(--vscode-descriptionForeground); }
+    .history-item.cancelled .history-title { color: var(--vscode-descriptionForeground); }
+    .history-item.errored .history-icon { color: var(--vscode-errorForeground, #f44747); }
+    .history-status-cancelled { font-style: italic; font-size: 10px; color: var(--vscode-descriptionForeground); }
+    .history-status-error { font-style: italic; font-size: 10px; color: var(--vscode-errorForeground, #f44747); }
     .history-icon { font-size: 12px; flex-shrink: 0; width: 16px; text-align: center; }
     .history-title {
       flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1298,7 +1298,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     .save-toast {
       display: none; position: fixed; bottom: 16px; right: 16px;
-      background: var(--vscode-terminal-ansiGreen, #3fb950); color: #000;
+      background: var(--vscode-terminal-ansiGreen, #3fb950); color: var(--vscode-editor-background);
       padding: 6px 16px; border-radius: 5px; font-size: 12px;
       font-weight: 600; z-index: 100;
     }
@@ -1316,9 +1316,19 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     .settings-save-row .save-btn:hover { background: var(--vscode-button-hoverBackground); }
     .settings-save-row .save-btn.saved { background: var(--vscode-terminal-ansiGreen, #3fb950); }
 
+    /* ── Body layout: flex column, screens fill space, input pinned ── */
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      margin: 0;
+    }
+
     /* ── Home screen layout ── */
     #screen-home {
-      height: 100vh;
+      flex: 1;
+      min-height: 0;
     }
     #screen-home .home-scroll {
       flex: 1; overflow-y: auto; overflow-x: hidden;
@@ -1326,7 +1336,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     /* ── Chat screen layout ── */
     #screen-chat {
-      height: 100vh;
+      flex: 1;
+      min-height: 0;
       overflow: hidden;
     }
     #screen-chat .chat-messages {
@@ -1337,7 +1348,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     /* ── Settings screen ── */
     #screen-settings {
-      height: 100vh;
+      flex: 1;
+      min-height: 0;
     }
   </style>
 </head>
@@ -1383,7 +1395,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         <p>Independent investigations. No memory. Just accurate answers.</p>
       </div>
       <div id="primaryCards" class="cmd-cards"></div>
-      <div id="moreToggle" class="more-toggle">\u25B6 More actions</div>
+      <div id="moreToggle" class="more-toggle" tabindex="0" role="button">\u25B6 More actions</div>
       <div id="secondaryCards" class="cmd-cards cmd-cards-secondary" style="display:none"></div>
 
       <!-- History -->
@@ -1437,11 +1449,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       <span id="connBadge" style="display:none;font-size:9.5px;padding:1px 7px;border-radius:10px;margin-left:6px"></span>
       <span class="spacer"></span>
     </div>
-    <div class="settings-tab-bar">
-      <div class="settings-tab active" data-tab="connect">Connect</div>
-      <div class="settings-tab" data-tab="behaviour">Behaviour</div>
-      <div class="settings-tab" data-tab="prompts">Prompts</div>
-      <div class="settings-tab" data-tab="advanced">Advanced</div>
+    <div class="settings-tab-bar" role="tablist">
+      <div class="settings-tab active" data-tab="connect" role="tab" tabindex="0" aria-selected="true">Connect</div>
+      <div class="settings-tab" data-tab="behaviour" role="tab" tabindex="0" aria-selected="false">Behaviour</div>
+      <div class="settings-tab" data-tab="prompts" role="tab" tabindex="0" aria-selected="false">Prompts</div>
+      <div class="settings-tab" data-tab="advanced" role="tab" tabindex="0" aria-selected="false">Advanced</div>
     </div>
     <div class="settings-scroll">
 
@@ -1846,6 +1858,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   </div>
 
   <script nonce="${nonce}">
+    // Inline HTML escaper for dynamic values (XSS prevention in webview)
+    function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+
     const vscodeApi = acquireVsCodeApi();
     const messagesEl = document.getElementById("messages");
     const chatInput = document.getElementById("chatInput");
@@ -1859,10 +1874,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     let slashIdx = -1;
     let currentIntent = null;
     let currentScreen = "home";
+    let previousScreen = "home";
     let chatFindingCount = 0;
 
     // ── Screen switching ──
     function showScreen(name) {
+      if (currentScreen !== name) previousScreen = currentScreen;
       currentScreen = name;
       document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
       const el = document.getElementById("screen-" + name);
@@ -1908,7 +1925,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     // Primary: full cards with icon, title, description, subtitle
     const primaryHtml = CMDS.filter(c => PRIMARY.includes(c.type) && !c.id.includes("2")).map(c =>
-      '<div class="cmd-card" data-slash="' + c.slash + '" data-type="' + c.type + '">'
+      '<div class="cmd-card" data-slash="' + c.slash + '" data-type="' + c.type + '" tabindex="0" role="button">'
       + '<div class="cmd-card-icon">' + (ICONS[c.type] || "") + '</div>'
       + '<div class="cmd-card-body">'
       + '<div class="cmd-card-title">' + c.type.charAt(0).toUpperCase() + c.type.slice(1) + '</div>'
@@ -1920,7 +1937,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     // Secondary: compact rows — icon + name + description on one line
     const secondaryHtml = CMDS.filter(c => SECONDARY.includes(c.type)).map(c =>
-      '<div class="cmd-row" data-slash="' + c.slash + '" data-type="' + c.type + '">'
+      '<div class="cmd-row" data-slash="' + c.slash + '" data-type="' + c.type + '" tabindex="0" role="button">'
       + '<span class="cmd-row-icon">' + (ICONS[c.type] || "") + '</span>'
       + '<span class="cmd-row-name">' + c.type.charAt(0).toUpperCase() + c.type.slice(1) + '</span>'
       + '<span class="cmd-row-desc">' + c.desc + '</span>'
@@ -1929,20 +1946,25 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     document.getElementById("secondaryCards").innerHTML = secondaryHtml;
 
     // More toggle
-    document.getElementById("moreToggle").addEventListener("click", function() {
+    const moreToggle = document.getElementById("moreToggle");
+    function toggleMore() {
       const sec = document.getElementById("secondaryCards");
       const open = sec.style.display !== "none";
       sec.style.display = open ? "none" : "block";
-      this.innerHTML = (open ? "\\u25B6" : "\\u25BE") + " More actions";
-    });
+      moreToggle.innerHTML = (open ? "\\u25B6" : "\\u25BE") + " More actions";
+      moreToggle.setAttribute("aria-expanded", open ? "false" : "true");
+    }
+    moreToggle.addEventListener("click", toggleMore);
+    moreToggle.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleMore(); } });
 
     // Click handlers for all cards and rows — open Step 2 form
     document.querySelectorAll(".cmd-card, .cmd-row").forEach(el => {
-      el.addEventListener("click", () => {
-        // Create a fake slash menu item element with the right data attributes
+      function activate() {
         const fakeEl = { dataset: { cmd: el.dataset.slash, type: el.dataset.type } };
         selectSlash(fakeEl);
-      });
+      }
+      el.addEventListener("click", activate);
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); } });
     });
 
     // Request editor context
@@ -2246,16 +2268,52 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       });
     }
 
-    // File input: Enter to add chip, Tab for autocomplete
+    // Shared: select highlighted file from autocomplete dropdown
+    function selectFileFromMenu(inputEl, addFn) {
+      const items = slashMenu.querySelectorAll(".slash-item");
+      if (slashMenu.dataset.mode === "file" && items.length > 0 && fileMenuIdx >= 0) {
+        const fp = items[Math.min(fileMenuIdx, items.length - 1)].dataset.filepath;
+        if (fp) addFn(fp);
+        inputEl.value = "";
+        slashMenu.style.display = "none";
+        slashMenu.dataset.mode = "";
+        fileMenuIdx = -1;
+        return true;
+      }
+      return false;
+    }
+
+    // Shared: navigate file autocomplete with arrow keys
+    function navigateFileMenu(e) {
+      if (slashMenu.dataset.mode !== "file" || slashMenu.style.display === "none") return false;
+      const items = slashMenu.querySelectorAll(".slash-item");
+      if (!items.length) return false;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        items.forEach(el => el.classList.remove("active"));
+        if (e.key === "ArrowDown") fileMenuIdx = (fileMenuIdx + 1) % items.length;
+        else fileMenuIdx = (fileMenuIdx - 1 + items.length) % items.length;
+        items[fileMenuIdx].classList.add("active");
+        items[fileMenuIdx].scrollIntoView({ block: "nearest" });
+        return true;
+      }
+      return false;
+    }
+
+    // File input: Enter to select from dropdown or add chip, arrows to navigate, Tab for autocomplete
     document.getElementById("rfFileInput").addEventListener("keydown", function(e) {
+      if (navigateFileMenu(e)) return;
       if (e.key === "Enter") {
         e.preventDefault();
-        const val = this.value.trim();
-        if (val && !rfFileList.includes(val)) {
-          rfFileList.push(val);
-          renderRfFileChips();
+        if (!selectFileFromMenu(this, function(fp) { if (!rfFileList.includes(fp)) { rfFileList.push(fp); renderRfFileChips(); } })) {
+          const val = this.value.trim();
+          if (val && !rfFileList.includes(val)) {
+            rfFileList.push(val);
+            renderRfFileChips();
+          }
+          this.value = "";
         }
-        this.value = "";
+        this.focus();
       }
       if (e.key === "Tab") {
         e.preventDefault();
@@ -2264,7 +2322,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        clearCmdChip();
+        if (slashMenu.dataset.mode === "file") { slashMenu.style.display = "none"; slashMenu.dataset.mode = ""; }
+        else clearCmdChip();
       }
     });
 
@@ -2356,14 +2415,22 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     document.getElementById("ifFileInput").addEventListener("keydown", function(e) {
+      if (navigateFileMenu(e)) return;
       if (e.key === "Enter") {
         e.preventDefault();
-        const val = this.value.trim();
-        if (val && !ifFileList.includes(val)) { ifFileList.push(val); renderIfFileChips(); }
-        this.value = "";
+        if (!selectFileFromMenu(this, function(fp) { if (!ifFileList.includes(fp)) { ifFileList.push(fp); renderIfFileChips(); } })) {
+          const val = this.value.trim();
+          if (val && !ifFileList.includes(val)) { ifFileList.push(val); renderIfFileChips(); }
+          this.value = "";
+        }
+        this.focus();
       }
       if (e.key === "Tab") { e.preventDefault(); if (this.value.trim().length >= 2) requestFileComplete(this.value.trim()); }
-      if (e.key === "Escape") { e.preventDefault(); clearCmdChip(); }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (slashMenu.dataset.mode === "file") { slashMenu.style.display = "none"; slashMenu.dataset.mode = ""; }
+        else clearCmdChip();
+      }
     });
 
     document.getElementById("ifFileInput").addEventListener("input", function() {
@@ -2449,6 +2516,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     // ── Delegated clicks (file links, copy, save, details) ──
     document.addEventListener("click", (e) => {
+      // Toggle collapsed/expanded on message bars
+      const colBar = e.target.closest(".msg-collapsed-bar");
+      if (colBar) { toggleCollapse(colBar); return; }
       const link = e.target.closest(".file-link, .finding-file, .dep-file");
       if (link) {
         e.preventDefault();
@@ -2514,6 +2584,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     function scrollToBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
 
+    function toggleCollapse(colBar) {
+      const msgEl = colBar.closest(".msg-assistant");
+      if (!msgEl || msgEl.classList.contains("msg-streaming")) return;
+      msgEl.classList.toggle("collapsed");
+    }
+
+    // Keyboard support for collapsed bars (delegated)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        const colBar = e.target.closest(".msg-collapsed-bar");
+        if (colBar) { e.preventDefault(); toggleCollapse(colBar); }
+      }
+    });
+
     // ── Agent log parser ──
     function parseLogLine(line) {
       if (line.includes("agent.tool name=")) {
@@ -2546,9 +2630,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     document.getElementById("btnCheckUpdate").addEventListener("click", () => vscodeApi.postMessage({ type: "checkUpdate" }));
     document.getElementById("btnRedownload").addEventListener("click", () => vscodeApi.postMessage({ type: "redownload" }));
     document.getElementById("btnOpenBin").addEventListener("click", () => vscodeApi.postMessage({ type: "openBinFolder" }));
-    document.getElementById("btnTestConn").addEventListener("click", () => vscodeApi.postMessage({ type: "testConnection" }));
+    document.getElementById("btnTestConn").addEventListener("click", function() {
+      this.disabled = true; this.textContent = "Testing...";
+      vscodeApi.postMessage({ type: "testConnection" });
+    });
     document.getElementById("settingsBackBtn").addEventListener("click", () => {
-      vscodeApi.postMessage({ type: "goBack" });
+      // Return to the screen the user was on before settings (chat or home)
+      showScreen(previousScreen || "home");
     });
 
     // Chat nav buttons
@@ -2575,24 +2663,33 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     // Tab switching
     document.querySelectorAll(".settings-tab").forEach(tab => {
-      tab.addEventListener("click", () => {
-        document.querySelectorAll(".settings-tab").forEach(t => t.classList.remove("active"));
+      function activate() {
+        document.querySelectorAll(".settings-tab").forEach(t => { t.classList.remove("active"); t.setAttribute("aria-selected","false"); });
         document.querySelectorAll(".settings-tab-content").forEach(c => c.classList.remove("active"));
         tab.classList.add("active");
+        tab.setAttribute("aria-selected","true");
         const content = document.getElementById("tab-" + tab.getAttribute("data-tab"));
         if (content) content.classList.add("active");
-      });
+      }
+      tab.addEventListener("click", activate);
+      tab.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); } });
     });
 
     // Toggle switches
     document.querySelectorAll(".toggle-track").forEach(track => {
-      track.addEventListener("click", () => {
+      track.setAttribute("tabindex", "0");
+      track.setAttribute("role", "switch");
+      track.setAttribute("aria-checked", track.classList.contains("on") ? "true" : "false");
+      function toggle() {
         track.classList.toggle("on");
+        track.setAttribute("aria-checked", track.classList.contains("on") ? "true" : "false");
         const key = track.getAttribute("data-key");
         if (key) {
           vscodeApi.postMessage({ type: "update", key, value: track.classList.contains("on") });
         }
-      });
+      }
+      track.addEventListener("click", toggle);
+      track.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
     });
 
     // Text/password/number inputs + select + textareas
@@ -2749,7 +2846,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     // ── Settings config apply ──
     function applyConfig(c) {
       if (c.binaryPath) document.getElementById("binPath").textContent = c.binaryPath;
-      if (c.apiKey) document.getElementById("apiKey").value = c.apiKey;
+      if (c.apiKeyMasked) document.getElementById("apiKey").setAttribute("placeholder", c.apiKeyMasked);
+      if (c.hasApiKey) document.getElementById("apiKey").value = "";
       if (c.model) document.getElementById("settingsModel").value = c.model;
       if (c.endpoint) document.getElementById("settingsEndpoint").value = c.endpoint;
 
@@ -2812,20 +2910,32 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           lastGroup = item.group;
         }
         const title = (item.title || "").length > 40 ? item.title.slice(0, 40) + "..." : item.title;
-        html += '<div class="history-item" data-idx="' + historyData.indexOf(item) + '">'
-          + '<span class="history-icon">' + item.icon + '</span>'
-          + '<span class="history-title">' + title + '</span>'
+        const isRunning = !item.markdown;
+        const isCancelled = item.status === "cancelled";
+        const isError = item.status === "error";
+        const stateClass = isRunning ? " running" : isCancelled ? " cancelled" : isError ? " errored" : "";
+        const icon = isRunning ? '\\u21BB' : isCancelled ? '\\u2715' : isError ? '\\u26A0' : item.icon;
+        const suffix = isRunning ? ' <span style="color:var(--vscode-descriptionForeground);font-style:italic">(running)</span>'
+          : isCancelled ? ' <span class="history-status-cancelled">(cancelled)</span>'
+          : isError ? ' <span class="history-status-error">(failed)</span>'
+          : '';
+        html += '<div class="history-item' + stateClass + '" data-idx="' + historyData.indexOf(item) + '" tabindex="0" role="button">'
+          + '<span class="history-icon">' + icon + '</span>'
+          + '<span class="history-title">' + esc(title) + suffix + '</span>'
           + '<span class="history-time">' + item.relTime + '</span>'
           + '</div>';
       }
       container.innerHTML = html;
       container.querySelectorAll(".history-item").forEach(el => {
-        el.addEventListener("click", () => {
+        function openItem() {
           const idx = parseInt(el.getAttribute("data-idx") || "0");
-          if (historyData[idx]) {
-            vscodeApi.postMessage({ type: "openResult", entry: historyData[idx] });
+          const entry = historyData[idx];
+          if (entry && entry.markdown) {
+            vscodeApi.postMessage({ type: "openResult", entry });
           }
-        });
+        }
+        el.addEventListener("click", openItem);
+        el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openItem(); } });
       });
     }
 
@@ -2887,6 +2997,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (!el) break;
           const status = el.querySelector(".msg-meta-status");
           if (status) status.textContent = "[" + msg.phase + "/" + msg.total + "] " + msg.label + (msg.detail ? " \\u2014 " + msg.detail : "");
+          // Update the collapsed bar preview with progress phase
+          const barPreview = el.querySelector(".collapsed-preview");
+          if (barPreview) barPreview.textContent = "[" + msg.phase + "/" + msg.total + "] " + msg.label;
           // Update loading phase text
           const loading = document.getElementById("loading-" + msg.id);
           if (loading) {
@@ -2904,12 +3017,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           let html = "";
           if (msg.file) {
             html += '<span style="color:var(--vscode-disabledForeground)" title="Currently open file in the editor. Used as default target for /review and /impact if no files are specified.">Editor:</span> ';
-            html += '<span style="color:var(--vscode-textLink-foreground);font-family:var(--vscode-editor-font-family)">' + msg.file + '</span>';
+            html += '<span style="color:var(--vscode-textLink-foreground);font-family:var(--vscode-editor-font-family)">' + esc(msg.file) + '</span>';
           }
           if (msg.selection) {
             html += '<span class="context-sep">\\u00B7</span>';
             html += '<span style="color:var(--vscode-disabledForeground)">Selected:</span> ';
-            html += '<span style="color:var(--vscode-editorWarning-foreground);font-family:var(--vscode-editor-font-family)">' + msg.selection + '</span>';
+            html += '<span style="color:var(--vscode-editorWarning-foreground);font-family:var(--vscode-editor-font-family)">' + esc(msg.selection) + '</span>';
           }
           contextStrip.innerHTML = html || '<span style="color:var(--vscode-disabledForeground)">No file open</span>';
           // Auto-add active file to impact form if it just opened
@@ -2936,6 +3049,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           const cmdText = (msg.text || "").replace(/</g,"&lt;").replace(/>/g,"&gt;");
           const cmdPreview = cmdText.length > 40 ? cmdText.slice(0, 40) + "..." : cmdText;
 
+          // Collapse all previous assistant messages
+          messagesEl.querySelectorAll(".msg-assistant:not(.collapsed)").forEach(prev => {
+            prev.classList.add("collapsed");
+          });
+
           // Populate chat header
           const headerCmd = document.getElementById("chatHeaderCmd");
           headerCmd.textContent = msg.label || "Query";
@@ -2959,11 +3077,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           div.className = "msg-assistant msg-streaming";
           div.id = "msg-" + msg.id;
           div.dataset.command = cmdType;
+          div.dataset.label = msg.label || "Query";
+          div.dataset.preview = cmdPreview;
           div.innerHTML =
-            '<div class="live-step" id="livestep-' + msg.id + '" style="display:none"></div>'
+            '<div class="msg-collapsed-bar" tabindex="0" role="button">'
+            + '<span class="collapsed-arrow">\\u25B8</span>'
+            + '<span class="collapsed-label">' + esc(msg.label || "Query") + '</span>'
+            + '<span class="collapsed-preview">' + cmdPreview + '</span>'
+            + '<span class="collapsed-badge running" id="badge-' + msg.id + '">running\\u2026</span>'
+            + '<span class="collapsed-time" id="bartime-' + msg.id + '"></span>'
+            + '</div>'
+            + '<div class="msg-bar-progress"><div class="msg-bar-progress-fill"></div></div>'
+            + '<div class="live-step" id="livestep-' + msg.id + '" style="display:none"></div>'
             + '<div id="findings-' + msg.id + '"></div>'
-            + '<div class="investigation-loading" id="loading-' + msg.id + '">'
-            + '<div class="loading-progress-bar"><div class="loading-progress-fill"></div></div>'
+            + '<div class="investigation-loading" id="loading-' + msg.id + '" style="display:none">'
             + '<div class="loading-phase"><span class="loading-spinner">\\u21BB</span><span class="loading-text">Scanning repository...</span></div>'
             + '<div class="loading-steps" id="loadingsteps-' + msg.id + '"></div>'
             + '</div>'
@@ -3022,7 +3149,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           }
           const rows = document.getElementById("frows-" + msg.id);
           const isErr = f.severity === "error" || f.severity === "high" || f.severity === "critical";
-          rows.innerHTML += '<div class="finding-row"><span class="finding-sev" style="color:' + (isErr?"var(--vscode-errorForeground)":"var(--vscode-editorWarning-foreground)") + '">' + (isErr?"\\u2B24":"\\u25C6") + '</span><div style="flex:1"><div class="finding-msg">' + (f.message||"").replace(/</g,"&lt;") + '</div><div class="finding-loc"><span class="finding-file file-link" data-file="' + f.file + '" data-line="' + f.line + '">' + f.file + ':' + f.line + '</span>' + (f.rule?'<span class="finding-rule">'+f.rule+'</span>':'') + '</div></div></div>';
+          rows.innerHTML += '<div class="finding-row"><span class="finding-sev" style="color:' + (isErr?"var(--vscode-errorForeground)":"var(--vscode-editorWarning-foreground)") + '">' + (isErr?"\\u2B24":"\\u25C6") + '</span><div style="flex:1"><div class="finding-msg">' + esc(f.message||"") + '</div><div class="finding-loc"><span class="finding-file file-link" data-file="' + esc(f.file) + '" data-line="' + esc(String(f.line)) + '">' + esc(f.file) + ':' + esc(String(f.line)) + '</span>' + (f.rule?'<span class="finding-rule">'+esc(f.rule)+'</span>':'') + '</div></div></div>';
           scrollToBottom();
           break;
         }
@@ -3073,6 +3200,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
           const toolbar = document.getElementById("toolbar-" + msg.id);
           if (toolbar) toolbar.style.display = "flex";
+
+          // Update collapsed bar: replace running badge with findings badge + time
+          const badgeEl = document.getElementById("badge-" + msg.id);
+          if (badgeEl) {
+            if (chatFindingCount > 0) {
+              badgeEl.className = "collapsed-badge findings";
+              badgeEl.textContent = chatFindingCount + " finding" + (chatFindingCount !== 1 ? "s" : "");
+            } else {
+              badgeEl.style.display = "none";
+            }
+          }
+          const barTimeEl = document.getElementById("bartime-" + msg.id);
+          if (barTimeEl && msg.durationMs > 0) barTimeEl.textContent = (msg.durationMs/1000).toFixed(1) + "s";
+
           setStreaming(false);
           scrollToBottom();
           break;
@@ -3089,6 +3230,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (live) live.style.display = "none";
           const content = document.getElementById("content-" + msg.id);
           if (content) { content.style.display = "block"; content.textContent = msg.message; }
+          // Update bar badge to error
+          const errBadge = document.getElementById("badge-" + msg.id);
+          if (errBadge) { errBadge.className = "collapsed-badge"; errBadge.style.color = "var(--vscode-errorForeground)"; errBadge.textContent = "error"; }
           // Update header status to Error
           const errHeaderStatus = document.getElementById("chatHeaderStatus");
           errHeaderStatus.textContent = "ERROR";
@@ -3106,6 +3250,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (loadingCancel) loadingCancel.style.display = "none";
           const live = document.getElementById("livestep-" + msg.id);
           if (live) live.style.display = "none";
+          // Update bar badge to cancelled
+          const cancelBadge = document.getElementById("badge-" + msg.id);
+          if (cancelBadge) { cancelBadge.className = "collapsed-badge"; cancelBadge.style.color = "var(--vscode-descriptionForeground)"; cancelBadge.textContent = "cancelled"; }
           // Update header status to Cancelled
           const cancelHeaderStatus = document.getElementById("chatHeaderStatus");
           cancelHeaderStatus.textContent = "CANCELLED";
@@ -3136,7 +3283,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
               + '</div>';
           }).join("");
           slashMenu.style.display = "block";
-          slashMenu.querySelectorAll(".slash-item").forEach(el => {
+          slashMenu.querySelectorAll(".slash-item").forEach((el, idx) => {
+            // Mouse hover updates the active highlight
+            el.addEventListener("mouseenter", () => {
+              slashMenu.querySelectorAll(".slash-item").forEach(x => x.classList.remove("active"));
+              el.classList.add("active");
+              fileMenuIdx = idx;
+            });
             el.addEventListener("click", () => {
               const fp = el.dataset.filepath;
               // Add to active command form, or default file chips
@@ -3184,16 +3337,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "connResult": {
           const el = document.getElementById("connStatus");
           const badge = document.getElementById("connBadge");
+          const testBtn = document.getElementById("btnTestConn");
+          if (!msg.pending) { testBtn.disabled = false; testBtn.textContent = "Test Connection"; }
           el.style.display = "block";
           if (msg.pending) {
             el.style.background = "var(--vscode-editor-lineHighlightBackground)";
             el.style.color = "var(--vscode-editor-foreground)";
-            el.innerHTML = "\\u27F3 " + msg.message;
+            el.innerHTML = "\\u27F3 " + esc(msg.message);
             badge.style.display = "none";
           } else if (msg.ok) {
-            el.style.background = "var(--vscode-terminal-ansiGreen, #4ec966)";
-            el.style.color = "#000";
-            el.innerHTML = "\\u25CF " + msg.message;
+            el.style.background = "rgba(63,185,80,0.15)";
+            el.style.color = "var(--vscode-terminal-ansiGreen, #4ec966)";
+            el.innerHTML = "\\u25CF " + esc(msg.message);
             // Show persistent badge in header
             badge.style.display = "inline";
             badge.style.background = "rgba(63,185,80,0.15)";
@@ -3204,7 +3359,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           } else {
             el.style.background = "var(--vscode-inputValidation-errorBackground, #5a1d1d)";
             el.style.color = "var(--vscode-errorForeground, #f44747)";
-            el.innerHTML = "\\u2717 " + msg.message;
+            el.innerHTML = "\\u2717 " + esc(msg.message);
             badge.style.display = "inline";
             badge.style.background = "rgba(248,81,73,0.15)";
             badge.style.color = "var(--vscode-errorForeground, #f44747)";
