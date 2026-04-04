@@ -175,11 +175,13 @@ export class ArchexaWebviewPanel {
       const html = linkifyFileRefs(marked.parse(this.buffer) as string);
       this.panel.webview.postMessage({ type: "chunk", html });
     }
+    const showTokens = vscode.workspace.getConfiguration("archexa").get<boolean>("showTokenUsage", true);
     this.panel.webview.postMessage({
       type: "done",
       durationMs: durationMs ?? 0,
       promptTokens: promptTokens ?? 0,
       completionTokens: completionTokens ?? 0,
+      showTokenUsage: showTokens,
     });
   }
 
@@ -195,22 +197,24 @@ export class ArchexaWebviewPanel {
     this.panel.webview.postMessage({ type: "cancelled" });
   }
 
-  setContentDirect(markdown: string): void {
+  setContentDirect(markdown: string, durationMs?: number, promptTokens?: number, completionTokens?: number): void {
     this.buffer = markdown;
     const cssUri = this.panel.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, "media", "panel.css")
     );
     this.panel.webview.html = this.getHtml(cssUri);
 
+    const showTokens = vscode.workspace.getConfiguration("archexa").get<boolean>("showTokenUsage", true);
     // Small delay so webview initializes
     setTimeout(() => {
       const html = linkifyFileRefs(marked.parse(markdown) as string);
       this.panel.webview.postMessage({ type: "chunk", html });
       this.panel.webview.postMessage({
         type: "done",
-        durationMs: 0,
-        promptTokens: 0,
-        completionTokens: 0,
+        durationMs: durationMs ?? 0,
+        promptTokens: promptTokens ?? 0,
+        completionTokens: completionTokens ?? 0,
+        showTokenUsage: showTokens,
       });
     }, 100);
   }
@@ -371,7 +375,7 @@ export class ArchexaWebviewPanel {
             dur.textContent = (msg.durationMs / 1000).toFixed(1) + "s";
             dur.classList.remove("hidden");
           }
-          if (msg.promptTokens > 0 || msg.completionTokens > 0) {
+          if (msg.showTokenUsage !== false && (msg.promptTokens > 0 || msg.completionTokens > 0)) {
             const tok = document.getElementById("meta-tokens");
             tok.textContent = msg.promptTokens + " / " + msg.completionTokens + " tokens";
             tok.classList.remove("hidden");

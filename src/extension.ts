@@ -138,7 +138,7 @@ export async function activate(
           vscode.ViewColumn.Beside,
           ctx.extensionUri
         );
-        panel.setContentDirect(entry.markdown);
+        panel.setContentDirect(entry.markdown, entry.durationMs, entry.promptTokens, entry.completionTokens);
       }
     ),
     vscode.commands.registerCommand("archexa.welcome", () => {
