@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as crypto from "crypto";
+import * as cp from "child_process";
 import * as https from "https";
 import * as fs from "fs";
 import * as path from "path";
@@ -196,9 +197,24 @@ export class BinaryManager {
       fs.chmodSync(this.destPath, 0o755);
       this.emitProgress(
         "Installing to extension dir",
-        88,
+        87,
         `-> chmod +x (setting execute permissions)`
       );
+    }
+
+    // macOS: remove quarantine attribute so Gatekeeper doesn't block execution
+    if (process.platform === "darwin") {
+      try {
+        cp.execFileSync("xattr", ["-d", "com.apple.quarantine", this.destPath], { timeout: 5000 });
+        this.emitProgress(
+          "Installing to extension dir",
+          88,
+          `-> Removed macOS quarantine flag`
+        );
+      } catch {
+        // Attribute may not exist (e.g., binary wasn't quarantined) — that's fine
+        this.logger.debug("xattr quarantine removal skipped (attribute not present)");
+      }
     }
 
     // Write version

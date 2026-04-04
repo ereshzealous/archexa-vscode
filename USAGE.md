@@ -447,6 +447,19 @@ Archexa works with any endpoint that supports the OpenAI `POST /chat/completions
 
 Run `Cmd+Shift+P` > **"Archexa: Run Setup Wizard"** to download the binary. Or set `archexa.binaryPath` to a manually downloaded binary.
 
+### macOS: Binary blocked by Gatekeeper
+
+macOS quarantines binaries downloaded from the internet. The extension removes the quarantine flag automatically after download. If it still fails:
+
+1. A notification appears with a **"Fix Permissions"** button — click it
+2. Or run manually in Terminal:
+   ```bash
+   xattr -d com.apple.quarantine ~/.vscode/globalStorage/EreshGorantla.archexa/bin/archexa
+   ```
+3. If you see *"archexa is damaged"* in a macOS dialog, the same `xattr` command fixes it
+
+This is standard for unsigned binaries distributed outside the Mac App Store. Homebrew, VS Code itself, and most CLI tools do the same.
+
 ### "No API key set"
 
 Set your API key in Settings > Connection, or set the `OPENAI_API_KEY` environment variable in your shell profile.

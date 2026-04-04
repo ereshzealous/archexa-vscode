@@ -148,6 +148,28 @@ Archexa runs entirely on your machine. The binary scans your code locally using 
 
 ---
 
+## Troubleshooting
+
+### macOS: "cannot be opened" or binary blocked
+
+macOS Gatekeeper may block the downloaded binary. The extension removes the quarantine flag automatically, but if it fails you'll see a notification with a **"Fix Permissions"** button. Or run manually:
+
+```bash
+xattr -d com.apple.quarantine ~/.vscode/globalStorage/EreshGorantla.archexa/bin/archexa
+```
+
+### Commands fail silently
+
+Check the Output panel: **View > Output** > select **"Archexa"** from the dropdown. Set `archexa.logLevel` to `"DEBUG"` for verbose output.
+
+---
+
+## Platforms
+
+macOS (Apple Silicon + Intel) | Linux (x86_64 + ARM) | Windows (x64)
+
+---
+
 ## License
 
 Apache 2.0

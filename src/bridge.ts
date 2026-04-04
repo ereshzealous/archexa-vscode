@@ -150,7 +150,35 @@ export class ArchexaBridge {
 
       proc.on("error", (err) => {
         cancelDisposable?.dispose();
-        if (!cancelled) reject(new Error(`Failed to start Archexa: ${err.message}`));
+        if (!cancelled) {
+          // Detect macOS Gatekeeper block (EACCES on spawn)
+          if (process.platform === "darwin" && (err as NodeJS.ErrnoException).code === "EACCES") {
+            const fix = "Fix Permissions";
+            void vscode.window.showErrorMessage(
+              "macOS blocked the Archexa binary. Click Fix to remove the quarantine flag.",
+              fix, "Manual Instructions"
+            ).then(choice => {
+              if (choice === fix) {
+                try {
+                  const cp = require("child_process") as typeof import("child_process");
+                  cp.execFileSync("xattr", ["-d", "com.apple.quarantine", this.binaryPath], { timeout: 5000 });
+                  vscode.window.showInformationMessage("Quarantine removed. Please retry your command.");
+                } catch {
+                  vscode.window.showErrorMessage(
+                    `Run manually in Terminal: xattr -d com.apple.quarantine "${this.binaryPath}"`
+                  );
+                }
+              } else if (choice === "Manual Instructions") {
+                vscode.window.showInformationMessage(
+                  `Run in Terminal: xattr -d com.apple.quarantine "${this.binaryPath}"`
+                );
+              }
+            });
+            reject(new Error("macOS Gatekeeper blocked the binary. Click the notification to fix."));
+          } else {
+            reject(new Error(`Failed to start Archexa: ${err.message}`));
+          }
+        }
       });
 
       proc.on("close", (code) => {
