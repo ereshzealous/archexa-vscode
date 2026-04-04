@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag (e.g. v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: npm run compile
+
+      - name: Determine version and pre-release
+        id: prerelease
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [[ "$TAG" == *"-"* ]] || [[ "$TAG" =~ ^v0\. ]]; then
+            echo "flag=--pre-release" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create git tag (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git tag -a ${{ steps.prerelease.outputs.tag }} -m "Release ${{ steps.prerelease.outputs.tag }}"
+          git push origin ${{ steps.prerelease.outputs.tag }}
+
+      - name: Package VSIX
+        run: npx @vscode/vsce package ${{ steps.prerelease.outputs.flag }}
+
+      - name: Publish to Marketplace
+        run: npx @vscode/vsce publish ${{ steps.prerelease.outputs.flag }} -p ${{ secrets.VSCE_PAT }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.prerelease.outputs.tag }}
+          files: '*.vsix'
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}
+          generate_release_notes: true
