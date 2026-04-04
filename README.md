@@ -66,6 +66,34 @@ Run **Gist** for a quick overview or **Analyze** for full architecture documenta
 
 ---
 
+## Project Files
+
+Archexa stores all generated files inside your project directory:
+
+```
+your-project/
+  .archexa/                  ← created automatically
+    config.yaml              ← extension config (synced from Settings UI)
+    *.md                     ← generated output (review, gist, analyze results)
+  .archexa_cache/            ← tree-sitter AST cache (managed by CLI)
+```
+
+- **Config** — Your settings (model, endpoint, prompts, etc.) are saved to `.archexa/config.yaml`. This file is regenerated from the Settings UI. If you have a manual `archexa.yaml` in the project root, it will be used as a fallback.
+- **Output** — All generated markdown files are saved in `.archexa/` by default. You can change this in **Settings > Advanced > Output directory**.
+- **Cache** — The CLI caches tree-sitter parse results in `.archexa_cache/` for faster repeat runs.
+
+### .gitignore
+
+On first activation, the extension checks if `.archexa/` is in your `.gitignore` and offers to add it. If you prefer to do it manually:
+
+```gitignore
+# Archexa (AI codebase intelligence)
+.archexa/
+.archexa_cache/
+```
+
+---
+
 ## Deep Mode
 
 Every command supports **deep mode** — an agentic investigation where the LLM reads files, greps for patterns, traces callers, and iterates before generating output.
@@ -100,6 +128,7 @@ Open **Archexa: Open Settings** from the command palette, or configure via VS Co
 | `archexa.deepByDefault` | Use agentic deep mode by default | `true` |
 | `archexa.showInlineFindings` | Show review findings as editor squiggles | `true` |
 | `archexa.excludePatterns` | Glob patterns to exclude from scanning | `.archexa/**` |
+| `archexa.outputDir` | Directory for generated output files | `.archexa` |
 
 See all settings in **Settings > Advanced**.
 
