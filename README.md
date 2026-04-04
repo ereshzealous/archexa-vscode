@@ -1,6 +1,10 @@
 # Archexa (Beta) — AI-Powered Codebase Intelligence
 
-> Diagnose errors, review code, query architecture, and trace impact — all powered by a self-contained binary with deep agentic investigation.
+> **Beta Release** — This extension is under active development. Features are stable but the binary is not yet code-signed. On macOS, the extension handles quarantine removal automatically. Please report issues on [GitHub](https://github.com/ereshzealous/archexa-vscode/issues).
+
+Diagnose errors, review code, query architecture, and trace impact — all powered by a self-contained binary with deep agentic investigation.
+
+This extension is powered by the [Archexa CLI](https://github.com/ereshzealous/archexa) — a self-contained binary that handles AST parsing, agentic investigation, and LLM synthesis.
 
 ![Archexa sidebar demo](media/screenshots/sidebar-demo.gif)
 
@@ -169,6 +173,15 @@ Check the Output panel: **View > Output** > select **"Archexa"** from the dropdo
 ## Platforms
 
 macOS (Apple Silicon + Intel) | Linux (x86_64 + ARM) | Windows (x64)
+
+---
+
+## Links
+
+- [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=EreshGorantla.archexa)
+- [Extension Source (GitHub)](https://github.com/ereshzealous/archexa-vscode)
+- [Archexa CLI (GitHub)](https://github.com/ereshzealous/archexa)
+- [Report Issues](https://github.com/ereshzealous/archexa-vscode/issues)
 
 ---
 
