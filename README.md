@@ -140,6 +140,8 @@ Open **Archexa: Open Settings** from the command palette, or configure via VS Co
 
 See all settings in **Settings > Advanced**.
 
+For full documentation — all commands, settings, custom prompts, LLM providers, and troubleshooting — see the **[Usage Guide](USAGE.md)**.
+
 ---
 
 ## Privacy
