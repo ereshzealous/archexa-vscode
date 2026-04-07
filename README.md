@@ -8,6 +8,8 @@ This extension is powered by the [Archexa CLI](https://github.com/ereshzealous/a
 
 ![Archexa sidebar demo](media/screenshots/sidebar-demo.gif)
 
+`Install from Extensions in VS Code is preferered`
+
 ---
 
 ## Features
