@@ -14,6 +14,8 @@ This extension is powered by the [Archexa CLI](https://github.com/ereshzealous/a
 **Install from Extensions in VS Code is preferered**
 For Full details Please gro through this Blog - [Medium Blog](https://medium.com/@eresh-gorantla/architecture-breaks-silently-i-built-a-tool-that-finds-out-why-88de58fa8c2e)
 
+![Archexa Install demo](media/screenshots/Install_Archexa.gif)
+
 ---
 
 ## Features
